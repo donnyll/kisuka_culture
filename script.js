@@ -13,6 +13,16 @@ const $$ = (s, r=document)=>[...r.querySelectorAll(s)];
 const money = n => "RM" + (Number(n)||0).toFixed(2);
 const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
+function getImages(p){
+  try{
+    if (Array.isArray(p.image_urls)) return p.image_urls.filter(Boolean);
+    if (typeof p.image_urls === 'string' && p.image_urls.trim().startsWith('[')) {
+      return JSON.parse(p.image_urls).filter(Boolean);
+    }
+  }catch(e){}
+  return [];
+}
+
 
 function showToast(msg, type='success'){
   const c = $("#toast-container"); if (!c) return;
@@ -146,7 +156,7 @@ const productBadge = p => {
 };
 const productCard = p => {
   const isWishlisted = wishlist.includes(String(p.id));
-  const firstImage = (p.image_urls && p.image_urls.length > 0) ? p.image_urls[0] : 'https://placehold.co/600x600?text=Produk';
+  const firstImage = (getImages(p).length > 0) ? getImages(p)[0] : 'https://placehold.co/600x600?text=Produk';
   return `
   <div class="product-card bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden group relative flex flex-col" data-id="${p.id}" data-action="view-detail">
     <div class="absolute top-2 right-2 z-10 flex flex-col gap-2">
@@ -200,7 +210,7 @@ async function renderProductDetail(id){
     p = data;
   }
   const isWishlisted = wishlist.includes(String(p.id));
-  const firstImage = (p.image_urls && p.image_urls.length > 0) ? p.image_urls[0] : 'https://placehold.co/800x800?text=Gambar';
+  const firstImage = (getImages(p).length > 0) ? getImages(p)[0] : 'https://placehold.co/600x600?text=Produk';
   view.innerHTML = `
     <section class="max-w-5xl mx-auto p-4 md:p-8">
       <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline"><i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali ke Semua Produk</a>
@@ -272,7 +282,7 @@ function renderCart(){
 }
 function addToCart(p){
   const it = cart.find(x=>String(x.id)===String(p.id));
-  const firstImage = (p.image_urls && p.image_urls.length > 0) ? p.image_urls[0] : null;
+  const firstImage = (getImages(p).length > 0) ? getImages(p)[0] : 'https://placehold.co/600x600?text=Produk';
   if (it){
     if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); }
     else return showToast(`Stok ${p.name} tidak mencukupi!`,'error');
@@ -365,6 +375,29 @@ async function loadPage(){
   renderPagination();
 }
 document.addEventListener('DOMContentLoaded', async ()=>{
+  
+function updatePaymentUI(){
+  const method = $("#co-payment")?.value || 'Transfer';
+  const receiptWrap = $("#receipt-upload-area");
+  const bankBox = $("#bank-info");
+  if (method === 'Transfer'){
+    if (receiptWrap) receiptWrap.style.display = '';
+    if ($("#co-receipt")) $("#co-receipt").required = true;
+    if (bankBox){
+      bankBox.innerHTML = `<div class="mt-2 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+        <p class="font-semibold mb-1">Butiran Bank</p>
+        <p>${BANK.name} — <strong>${BANK.account}</strong></p>
+        <p>Nama Akaun: <strong>${BANK.accountName}</strong></p>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Muat naik resit selepas transfer.</p>
+      </div>`;
+    }
+  } else {
+    if (receiptWrap) receiptWrap.style.display = 'none';
+    if ($("#co-receipt")) $("#co-receipt").required = false;
+    if (bankBox) bankBox.innerHTML = '';
+  }
+}
+
   initTheme();
   iconify();
   await applyAuthGate();
@@ -415,8 +448,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ currentPage = 1; CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
   $("#sort-select")?.addEventListener('change', async e => { currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#pagination")?.addEventListener('click', async e => { const b = e.target.closest('button[data-page]'); if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); } });
-  $("#checkout-btn")?.addEventListener('click', ()=>{ if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); });
+  $("#checkout-btn")?.addEventListener('click', ()=>{ if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); updatePaymentUI(); });
   $("#shipping-method")?.addEventListener('change', e=>{ shipping=e.target.value; localStorage.setItem(KEYS.SHIPPING, shipping); renderCart(); });
+  $("#co-payment")?.addEventListener('change', updatePaymentUI);
   $("#apply-coupon-btn")?.addEventListener('click', ()=>{
     const code = $("#coupon-input")?.value.trim().toUpperCase(); let applied=null;
     if (code==='SAVE10') applied={code,type:'percent',amount:10};
@@ -452,7 +486,29 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     }
   });
 
+  
+  // NEW: live preview for newly selected files in product form
+  $("#product-images-input")?.addEventListener('change', (e) => {
+    const files = e.target.files;
+    const urls = [];
+    for (const f of files) { try { urls.push(URL.createObjectURL(f)); } catch(e){} }
+    if (urls.length) {
+      const preview = $("#product-images-preview");
+      preview.innerHTML = urls.map(u => `<div class="relative group w-20 h-20"><img src="${u}" class="w-full h-full object-cover rounded-md border border-gray-300 dark:border-gray-600"></div>`).join('');
+    }
+  });
+
   /* ====== FORM SUBMISSIONS ====== */
+
+  $("#wa-btn")?.addEventListener('click', () => {
+    if (cart.length===0) return showToast('Troli anda kosong!', 'error');
+    const lines = cart.map(i=>`${i.quantity}x ${i.name} — ${money(i.price*i.quantity)}`).join('%0A');
+    const total = money(cartTotal());
+    const msg = `Order Baru:%0A${lines}%0A%0ATotal: ${total}%0A%0ANama: ${encodeURIComponent($("#co-name")?.value||'') }%0ATelefon: ${encodeURIComponent($("#co-phone")?.value||'') }%0AAlamat: ${encodeURIComponent($("#co-address")?.value||'') }`;
+    const url = `https://wa.me/${BANK.whatsapp}?text=${msg}`;
+    window.open(url, '_blank');
+  });
+
   $("#checkout-form")?.addEventListener('submit', async e => {
     e.preventDefault();
     const order = {
