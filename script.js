@@ -80,22 +80,35 @@ async function renderAuthArea(){
 }
 
 /* ====== SERVER DATA ====== */
-async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
+async function fetchProductsServer({
+  page = 1,
+  term = "",
+  category = "Semua",
+  sort = "popular",
+  ids = null,
+  pageSize: pageSizeOverride = null
+} = {}) {
   let query = supabase.from('products').select('*', { count: 'exact' });
-  if (ids) {
-    query = query.in('id', ids);
-  }
-  else {
-    const from = (page-1)*pageSize;
-    const to = from + pageSize - 1;
+
+  if (ids && ids.length) {
+    const casted = ids.map(x => isNaN(Number(x)) ? x : Number(x));
+    query = query.in('id', casted);
+  } else {
+    const size = pageSizeOverride || pageSize;
+    const from = (page - 1) * size;
+    const to = from + size - 1;
+
     if (term.trim()) query = query.ilike('name', `%${term}%`);
     if (category && category !== 'Semua') query = query.eq('category', category);
-    if (sort==='price-asc') query = query.order('price', { ascending:true });
-    else if (sort==='price-desc') query = query.order('price', { ascending:false });
-    else if (sort==='newest') query = query.order('created_at', { ascending:false });
-    else query = query.order('created_at', { ascending:false });
+
+    if (sort === 'price-asc')       query = query.order('price', { ascending: true });
+    else if (sort === 'price-desc') query = query.order('price', { ascending: false });
+    else if (sort === 'newest')     query = query.order('created_at', { ascending: false });
+    else                            query = query.order('created_at', { ascending: false }); // "popular" fallback
+
     query = query.range(from, to);
   }
+
   const { data, count, error } = await query;
   if (error){ showToast("Gagal memuat produk", 'error'); return { rows:[], count:0 }; }
   return { rows: data||[], count: count||0 };
@@ -244,15 +257,22 @@ async function renderProductDetail(id){
   iconify();
 }
 async function renderWishlist() {
-    const grid = $("#wishlist-grid");
-    if (!grid) return;
-    if (wishlist.length === 0) {
-        grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>';
-        return;
-    }
-    renderSkeletonGrid(grid);
-    const { rows } = await fetchProductsServer({ ids: wishlist });
-    renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
+  const grid = $("#wishlist-grid");
+  if (!grid) return;
+
+  if (wishlist.length === 0) {
+    grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>';
+    return;
+  }
+
+  renderSkeletonGrid(grid);
+
+  const { rows } = await fetchProductsServer({
+    ids: wishlist,
+    pageSize: wishlist.length,
+  });
+
+  renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
 }
 
 /* ====== CART ====== */
@@ -524,6 +544,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       id: uid().toUpperCase(), date: new Date().toISOString(),
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
       subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status:'Pending', 
+      couponApplied: coupon ? { ...coupon } : null,
       address: { name:$("#co-name").value.trim(), phone:$("#co-phone").value.trim(), address:$("#co-address").value.trim() }
     };
     try {
@@ -576,7 +597,9 @@ function openProductForm(id=null){
   togglePanel('product-form-modal', true);
 }
 function showReceipt(order){
-  const couponText = coupon ? `${coupon.code} (${coupon.type==='percent'?`-${coupon.amount}%`:'Percuma'})` : 'Tiada';
+  const couponText = order.couponApplied
+  ? `${order.couponApplied.code} (${order.couponApplied.type==='percent' ? `-${order.couponApplied.amount}%` : 'Percuma'})`
+  : 'Tiada';
   const html = `
     <div class="modal show" id="receipt-modal">
       <div class="modal-card max-w-sm">
