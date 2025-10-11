@@ -139,7 +139,11 @@ async function createOrUpdateProduct(record, files){
 }
 
 /* ====== RENDER FUNCTIONS ====== */
-const productBadge = p => p.stock === 0 ? '<span class="badge-stock-out">HABIS</span>' : (p.stock < 5 ? '<span class="badge-stock-low">STOK TERHAD</span>' : '');
+const productBadge = p => {
+    if (p.stock === 0) return '<span class="badge-stock badge-stock-out">HABIS</span>';
+    if (p.stock < 5) return '<span class="badge-stock badge-stock-low">STOK TERHAD</span>';
+    return '';
+};
 const productCard = p => {
   const isWishlisted = wishlist.includes(String(p.id));
   const firstImage = (p.image_urls && p.image_urls.length > 0) ? p.image_urls[0] : 'https://placehold.co/600x600?text=Produk';
@@ -154,10 +158,11 @@ const productCard = p => {
       ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
     </div>
     <div class="p-4 flex flex-col flex-grow">
-      <div class="flex items-center justify-between gap-2 cursor-pointer">
-        <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100 truncate flex-grow">${p.name}</h4> ${productBadge(p)}
+      <div class="flex items-center justify-between gap-2 cursor-pointer mb-1">
+        <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100 truncate flex-grow">${p.name}</h4>
+        ${productBadge(p)}
       </div>
-      <p class="text-base font-extrabold text-gray-900 dark:text-white mt-1 cursor-pointer">${money(p.price)}</p>
+      <p class="text-base font-extrabold text-gray-900 dark:text-white cursor-pointer">${money(p.price)}</p>
       <div class="flex gap-2 mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
         <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Tambah ke Troli</button>
       </div>
@@ -455,7 +460,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
       subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status: 'Pending',
       address: { name: $("#co-name").value, phone: $("#co-phone").value, address: $("#co-address").value },
-      payment: { method: 'Bank Transfer Manual', receipt_url: '' }
+      // FIXED: Flattened payment details to match new DB columns
+      payment_method: $("#co-payment").value,
+      receipt_url: ''
     };
     try {
       const receiptFile = $("#co-receipt")?.files?.[0];
@@ -463,7 +470,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         const path = `receipts/${order.id}.${receiptFile.name.split('.').pop()}`;
         const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, receiptFile);
         if (upErr) throw upErr;
-        order.payment.receipt_url = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+        order.receipt_url = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
       }
       const stockUpdates = cart.map(it => supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id));
       await Promise.all([...stockUpdates, createOrder(order)]);
@@ -542,7 +549,7 @@ function showReceipt(order){
         <div class="mt-3 text-sm space-y-1 text-gray-700 dark:text-gray-300"><div class="flex justify-between"><span>Subtotal</span><span>${money(order.subtotal)}</span></div><div class="flex justify-between"><span>Penghantaran</span><span>${money(order.shippingFee)}</span></div><div class="flex justify-between font-bold text-lg pt-2 mt-2 border-t border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"><span>Jumlah</span><span>${money(order.total)}</span></div></div>
         <div class="border-t border-gray-200 dark:border-gray-700 my-4"></div>
         <p class="text-xs text-gray-500 dark:text-gray-400">Alamat: ${order.address?.name||''}, ${order.address?.address||''}</p>
-        ${order.payment?.receipt_url ? `<a href="${order.payment.receipt_url}" target="_blank" class="text-xs text-cyan-600 underline">Lihat resit</a>` : ''}
+        ${order.receipt_url ? `<a href="${order.receipt_url}" target="_blank" class="text-xs text-cyan-600 underline">Lihat resit</a>` : ''}
         <div class="flex justify-end pt-4"><button class="btn-primary" onclick="this.closest('#receipt-modal').remove()">Tutup</button></div>
       </div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);

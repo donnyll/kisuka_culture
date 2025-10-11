@@ -37,6 +37,32 @@ html.dark .nav-bottom { color: var(--text-light); }
 }
 .badge-dot.small { height: 16px; width: 16px; top:-4px; right:-4px; }
 
+/* NEW: Stock Badges */
+.badge-stock {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.badge-stock-low {
+    background-color: #fef2f2; /* red-50 */
+    color: #b91c1c; /* red-700 */
+}
+html.dark .badge-stock-low {
+    background-color: #450a0a; /* dark red */
+    color: #fca5a5; /* red-300 */
+}
+.badge-stock-out {
+    background-color: #f3f4f6; /* gray-100 */
+    color: #4b5563; /* gray-600 */
+}
+html.dark .badge-stock-out {
+    background-color: #374151; /* gray-700 */
+    color: #d1d5db; /* gray-300 */
+}
+
+
 /* Panels & Modals */
 .panel { position: fixed; background: var(--bg-light); z-index: 40; transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1) }
 .panel.left  { top:0; left:0; height:100%; width:16rem; transform: translateX(-100%) }
