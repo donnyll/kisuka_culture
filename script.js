@@ -28,22 +28,18 @@ let coupon = JSON.parse(localStorage.getItem(KEYS.COUPON) || "null");
 let shipping = localStorage.getItem(KEYS.SHIPPING) || "standard";
 
 // UI state
-let ALL_PRODUCTS = [];                 // current page content
-let TOTAL_PRODUCTS = 0;                // count from server
+let ALL_PRODUCTS = [];
+let TOTAL_PRODUCTS = 0;
 let CURRENT_FILTER = { category:'Semua', term:'', sort:'popular' };
 let currentPage = 1;
-const pageSize = 8;                    // 8 item/halaman
+const pageSize = 8;
 
 /* ====== AUTH GATE ====== */
-// Sembunyikan/tonjolkan pautan Admin ikut status login+role
 async function applyAuthGate(){
   const { data: { user } } = await supabase.auth.getUser();
-  const links = $$('[data-view="admin"]'); // top nav + mobile nav + drawer
+  const links = $$('[data-view="admin"]');
   const isAdmin = !!user && user.user_metadata?.role === "admin";
-
   links.forEach(a => a.style.display = isAdmin ? "" : "none");
-
-  // Jika sedang berada di admin-view tapi bukan admin → pulangkan ke Home
   const adminView = $("#admin-view");
   const isOnAdmin = adminView && adminView.classList.contains("active");
   if (!isAdmin && isOnAdmin){
@@ -53,17 +49,13 @@ async function applyAuthGate(){
   return isAdmin;
 }
 
-// Render UI login/logout di sudut kanan Panel Admin
 async function renderAuthArea(){
   const { data: { user } } = await supabase.auth.getUser();
   const area = $("#auth-area");
   if (!area) return;
 
   if (user && user.user_metadata?.role === "admin"){
-    area.innerHTML = `
-      <span class="text-sm text-gray-600 hidden md:inline">Log masuk sebagai <strong>${user.email}</strong></span>
-      <button id="logout-btn" class="btn-light">Log Keluar</button>
-    `;
+    area.innerHTML = `<span class="text-sm text-gray-600 hidden md:inline">Log masuk sebagai <strong>${user.email}</strong></span><button id="logout-btn" class="btn-light !py-2 !px-3">Log Keluar</button>`;
     $("#logout-btn")?.addEventListener("click", async ()=>{
       await supabase.auth.signOut();
       await applyAuthGate();
@@ -71,13 +63,7 @@ async function renderAuthArea(){
       switchView("home");
     });
   } else {
-    area.innerHTML = `
-      <form id="login-form" class="flex gap-2">
-        <input type="email" id="login-email" placeholder="admin@email.com" class="border rounded p-2 text-sm" required>
-        <input type="password" id="login-pass" placeholder="kata laluan" class="border rounded p-2 text-sm" required>
-        <button class="btn-primary"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button>
-      </form>
-    `;
+    area.innerHTML = `<form id="login-form" class="flex gap-2"><input type="email" id="login-email" placeholder="admin@email.com" class="border rounded-md p-2 text-sm" required><input type="password" id="login-pass" placeholder="kata laluan" class="border rounded-md p-2 text-sm" required><button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button></form>`;
     iconify();
     $("#login-form")?.addEventListener("submit", async (e)=>{
       e.preventDefault();
@@ -88,162 +74,185 @@ async function renderAuthArea(){
       showToast("Berjaya log masuk");
       await applyAuthGate();
       renderAuthArea();
-      await renderAdmin(); // segarkan papan pemuka
+      await renderAdmin();
     });
   }
 }
 
-/* ====== SERVER DATA: Products & Orders ====== */
-async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular" }={}){
-  const from = (page-1)*pageSize;
-  const to = from + pageSize - 1;
+/* ====== SERVER DATA ====== */
+async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
   let query = supabase.from('products').select('*', { count: 'exact' });
-
-  if (term.trim()) query = query.ilike('name', `%${term}%`);
-  if (category && category !== 'Semua') query = query.eq('category', category);
-
-  // Sorting
-  if (sort==='price-asc')        query = query.order('price', { ascending:true });
-  else if (sort==='price-desc')  query = query.order('price', { ascending:false });
-  else if (sort==='newest')      query = query.order('created_at', { ascending:false });
-  else                           query = query.order('created_at', { ascending:false }); // default/popular
-
-  // Pagination
-  query = query.range(from, to);
-
+  if (ids) {
+    query = query.in('id', ids);
+  }
+  else {
+    const from = (page-1)*pageSize;
+    const to = from + pageSize - 1;
+    if (term.trim()) query = query.ilike('name', `%${term}%`);
+    if (category && category !== 'Semua') query = query.eq('category', category);
+    if (sort==='price-asc') query = query.order('price', { ascending:true });
+    else if (sort==='price-desc') query = query.order('price', { ascending:false });
+    else if (sort==='newest') query = query.order('created_at', { ascending:false });
+    else query = query.order('created_at', { ascending:false });
+    query = query.range(from, to);
+  }
   const { data, count, error } = await query;
   if (error){ showToast("Gagal memuat produk", 'error'); return { rows:[], count:0 }; }
   return { rows: data||[], count: count||0 };
 }
-
 async function fetchOrders(){
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.user_metadata?.role!=='admin') return [];
-  const { data, error } = await supabase.from('orders').select('*').order('date', { ascending:false });
-  if (error){ showToast("Gagal memuat pesanan", 'error'); return []; }
-  return data || [];
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || user.user_metadata?.role!=='admin') return [];
+    const { data, error } = await supabase.from('orders').select('*').order('date', { ascending:false });
+    if (error){ showToast("Gagal memuat pesanan", 'error'); return []; }
+    return data || [];
 }
-
 async function createOrUpdateProduct(record, file){
-  let image_url = record.image_url?.trim() || "";
-  if (file){
-    const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
-    const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${ext}`;
-    const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:false });
-    if (upErr) throw upErr;
-    const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-    image_url = pub.publicUrl;
-  }
-  const payload = {
-    name: record.name, description: record.description, price: Number(record.price),
-    category: record.category, stock: Number(record.stock), image_url
-  };
-  if (record.id){
-    const { error } = await supabase.from('products').update(payload).eq('id', record.id);
+    let image_url = record.image_url?.trim() || "";
+    if (file){
+        const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+        const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${ext}`;
+        const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:true });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+        image_url = pub.publicUrl;
+    }
+    const payload = {
+        name: record.name, description: record.description, price: Number(record.price),
+        category: record.category, stock: Number(record.stock), image_url
+    };
+    const { error } = record.id 
+        ? await supabase.from('products').update(payload).eq('id', record.id)
+        : await supabase.from('products').insert(payload);
     if (error) throw error;
-  } else {
-    const { error } = await supabase.from('products').insert(payload);
-    if (error) throw error;
-  }
 }
-
 async function deleteProduct(id){
-  const { error } = await supabase.from('products').delete().eq('id', id);
-  if (error) throw error;
+    const { error } = await supabase.from('products').delete().eq('id', id);
+    if (error) throw error;
 }
-
 async function createOrder(order){
-  const { error } = await supabase.from('orders').insert(order);
-  if (error) throw error;
+    const { error } = await supabase.from('orders').insert(order);
+    if (error) throw error;
 }
 
-/* ====== Rendering Produk & UI ====== */
-function productBadges(p){
-  const b=[]; if (p.stock===0) b.push('<span class="text-[11px] bg-gray-800 text-white px-2 py-0.5 rounded">HABIS</span>');
-  if (p.stock>0 && p.stock<5) b.push('<span class="text-[11px] bg-red-600 text-white px-2 py-0.5 rounded">LOW</span>');
+/* ====== RENDER UI ====== */
+const productBadge = p => {
+  const b=[];
+  if (p.stock === 0) b.push('<span class="text-[10px] bg-gray-800 text-white px-2 py-0.5 rounded-full font-semibold">HABIS</span>');
+  else if (p.stock > 0 && p.stock < 5) b.push('<span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-semibold">STOK TERHAD</span>');
   return b.join(' ');
-}
-function card(p){
-  const wishOn = wishlist.includes(String(p.id));
+};
+const productCard = p => {
+  const isWishlisted = wishlist.includes(String(p.id));
   return `
-  <div class="product-card bg-white rounded-lg shadow-md overflow-hidden group" data-id="${p.id}">
-    <div class="relative">
-      <img src="${p.image_url || 'https://placehold.co/600x600?text=Gambar'}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
-      ${p.stock===0?'<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold">HABIS DIJUAL</span></div>':''}
-      <button data-action="toggle-wishlist" data-id="${p.id}" class="absolute top-2 right-2 bg-white/90 rounded-full p-2 shadow">
-        <i data-lucide="${wishOn?'heart-off':'heart'}" class="w-4 h-4 text-pink-600"></i>
+  <div class="product-card bg-white rounded-lg border border-gray-200 overflow-hidden group relative flex flex-col" data-id="${p.id}" data-action="view-detail">
+    <div class="absolute top-2 right-2 z-10 flex flex-col gap-2">
+      <button data-action="toggle-wishlist" data-id="${p.id}" class="bg-white/80 rounded-full p-2 shadow-md hover:bg-white transition-transform hover:scale-110">
+        <i data-lucide="heart" class="w-4 h-4 transition-all ${isWishlisted ? 'text-red-500 fill-red-500' : 'text-gray-600'}"></i>
       </button>
     </div>
-    <div class="p-3 flex flex-col">
-      <div class="flex items-center justify-between gap-2">
-        <h4 class="font-semibold text-sm text-gray-800 truncate">${p.name}</h4>
-        <div class="flex gap-1">${productBadges(p)}</div>
+    <div class="relative cursor-pointer">
+      <img src="${p.image_url || 'https://placehold.co/600x600?text=Produk'}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
+      ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
+    </div>
+    <div class="p-4 flex flex-col flex-grow">
+      <div class="flex items-center justify-between gap-2 cursor-pointer">
+        <h4 class="font-bold text-sm text-gray-800 truncate flex-grow">${p.name}</h4>
+        ${productBadge(p)}
       </div>
-      <p class="text-base font-bold text-gray-900 mt-1">${money(p.price)}</p>
-      <div class="flex gap-2 mt-3">
-        <button data-action="view-detail" data-id="${p.id}" class="flex-1 border rounded-lg text-xs py-2 hover:bg-gray-50">Detail</button>
-        <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-500 text-white text-xs font-bold py-2 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400">Tambah</button>
+      <p class="text-base font-extrabold text-gray-900 mt-1 cursor-pointer">${money(p.price)}</p>
+      <div class="flex gap-2 mt-auto pt-4 border-t border-gray-100">
+        <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">Tambah ke Troli</button>
       </div>
     </div>
   </div>`;
-}
-function renderGrid(){
-  const grid = $("#all-product-grid");
-  if (!grid) return;
-  grid.innerHTML = ALL_PRODUCTS.length
-    ? ALL_PRODUCTS.map(card).join('')
-    : '<p class="col-span-full text-center text-gray-500">Tiada produk ditemui.</p>';
-  // featured (home)
-  const featured = $("#featured-product-grid");
-  if (featured) featured.innerHTML = ALL_PRODUCTS.slice(0,4).map(card).join('');
+};
+const skeletonCard = () => `
+  <div class="skeleton-card">
+    <div class="img"></div>
+    <div class="p-4 space-y-3">
+      <div class="text w-3/4"></div>
+      <div class="text w-1/2"></div>
+      <div class="pt-4 mt-auto">
+        <div class="text w-full h-9"></div>
+      </div>
+    </div>
+  </div>`;
+const renderSkeletonGrid = (grid) => {
+    if(!grid) return;
+    grid.innerHTML = Array.from({ length: pageSize }).map(skeletonCard).join('');
+};
+function renderGrid(products, gridElement, emptyMsg) {
+  if (!gridElement) return;
+  gridElement.innerHTML = products.length
+    ? products.map(productCard).join('')
+    : `<p class="col-span-full text-center text-gray-500 py-12">${emptyMsg}</p>`;
   iconify();
 }
 function renderCategories(){
-  const wrap = $("#category-filters");
-  if (!wrap) return;
-  const cats = ['Semua', ...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean))];
-  wrap.innerHTML = cats.map(c=> `
-    <button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-500 text-white':'bg-gray-200 text-gray-700'} px-4 py-2 rounded-full text-sm font-semibold">${c}</button>
-  `).join('');
+    const wrap = $("#category-filters");
+    if (!wrap) return;
+    const cats = ['Semua', ...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean).sort())];
+    wrap.innerHTML = cats.map(c=> `<button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white text-gray-700 border'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200">${c}</button>`).join('');
 }
 function renderPagination(){
-  const box = $("#pagination");
-  if (!box) return;
-  const totalPages = Math.max(1, Math.ceil(TOTAL_PRODUCTS / pageSize));
-  let html = "";
-  for (let i=1;i<=totalPages;i++){
-    html += `<button class="px-3 py-1 rounded ${i===currentPage?'bg-cyan-600 text-white':'bg-gray-200'}" data-page="${i}">${i}</button>`;
-  }
-  box.innerHTML = html;
+    const box = $("#pagination");
+    if (!box) return;
+    if (TOTAL_PRODUCTS <= pageSize) { box.innerHTML = ''; return; }
+    const totalPages = Math.ceil(TOTAL_PRODUCTS / pageSize);
+    let html = "";
+    for (let i=1; i<=totalPages; i++){
+        html += `<button class="px-3 py-1 rounded-md text-sm ${i===currentPage?'bg-cyan-600 text-white':'bg-white border hover:bg-gray-100'}" data-page="${i}">${i}</button>`;
+    }
+    box.innerHTML = html;
 }
-
-/* ====== Product Detail ====== */
-function renderProductDetail(id){
-  const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
+async function renderProductDetail(id){
   const view = $("#product-detail-view");
   if (!view) return;
-  if (!p){ view.innerHTML='<p class="p-8 text-center">Produk tidak ditemui.</p>'; return; }
+  view.innerHTML = `<div class="p-8 text-center">Memuat...</div>`;
+  let p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
+  
+  if (!p) {
+      const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
+      if (error || !data) { view.innerHTML='<p class="p-8 text-center">Produk tidak ditemui.</p>'; return; }
+      p = data;
+  }
+  
+  const isWishlisted = wishlist.includes(String(p.id));
   view.innerHTML = `
     <section class="max-w-5xl mx-auto p-4 md:p-8">
-      <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-4 inline-flex items-center">
-        <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali
+      <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline">
+        <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali ke Semua Produk
       </a>
-      <div class="grid md:grid-cols-2 gap-8">
+      <div class="grid md:grid-cols-2 gap-8 md:gap-12">
         <div><img src="${p.image_url || 'https://placehold.co/800x800?text=Gambar'}" alt="${p.name}" class="w-full rounded-lg shadow-lg"></div>
         <div>
           <h2 class="text-3xl font-extrabold">${p.name}</h2>
-          <p class="text-2xl font-bold text-gray-800 my-4">${money(p.price)}</p>
-          <p class="text-gray-600">${p.description || ''}</p>
-          ${p.stock>0 && p.stock<10 ? `<p class="text-red-600 text-sm mt-2">${p.stock} unit sahaja lagi!</p>`:''}
-          <div class="flex gap-2 mt-4">
-            <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400">Tambah ke Troli</button>
-            <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border"><i data-lucide="${wishlist.includes(String(p.id))?'heart-off':'heart'}" class="w-4 h-4 inline mr-1"></i>Wishlist</button>
+          <p class="text-gray-500 text-sm mt-1">Kategori: ${p.category}</p>
+          <p class="text-3xl font-bold text-gray-900 my-4">${money(p.price)}</p>
+          <p class="text-gray-600 leading-relaxed">${p.description || 'Tiada penerangan.'}</p>
+          ${p.stock > 0 && p.stock < 10 ? `<p class="text-red-600 font-semibold text-sm mt-4">${p.stock} unit sahaja lagi!</p>`:''}
+          ${p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">HABIS DIJUAL</p>`:''}
+          <div class="flex gap-3 mt-6">
+            <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 transition-colors">Tambah ke Troli</button>
+            <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border flex items-center gap-2 hover:bg-gray-50"><i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600'}"></i> Wishlist</button>
           </div>
         </div>
       </div>
     </section>
   `;
   iconify();
+}
+async function renderWishlist() {
+    const grid = $("#wishlist-grid");
+    if (!grid) return;
+    if (wishlist.length === 0) {
+        grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>';
+        return;
+    }
+    renderSkeletonGrid(grid);
+    const { rows } = await fetchProductsServer({ ids: wishlist });
+    renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
 }
 
 /* ====== CART ====== */
@@ -252,46 +261,52 @@ function shippingFee(){ if (coupon?.type==='freeship') return 0; return shipping
 function discountAmount(sub){ if (!coupon) return 0; if (coupon.type==='percent') return sub*(coupon.amount/100); return 0; }
 function cartTotal(){ const sub=cartSubtotal(); return Math.max(0, sub-discountAmount(sub)) + shippingFee(); }
 function renderCart(){
-  const box = $("#cart-items");
-  if (box){
-    if (cart.length===0) box.innerHTML = '<p class="text-gray-500 text-center mt-8">Troli anda kosong.</p>';
-    else {
-      box.innerHTML = cart.map(it=>`
-        <div class="flex items-center gap-3 mb-4">
-          <img src="${it.image_url || 'https://placehold.co/80x80'}" alt="${it.name}" class="w-16 h-16 object-cover rounded-md">
-          <div class="flex-grow">
-            <p class="text-sm font-semibold truncate">${it.name}</p>
-            <div class="flex items-center gap-2 my-1">
-              <button data-action="decrement" data-id="${it.id}" class="p-1 w-6 h-6 flex items-center justify-center border rounded-md">-</button>
-              <span>${it.quantity}</span>
-              <button data-action="increment" data-id="${it.id}" class="p-1 w-6 h-6 flex items-center justify-center border rounded-md">+</button>
-            </div>
-            <p class="text-sm font-bold">${money(it.price*it.quantity)}</p>
-          </div>
-          <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full self-start"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
-        </div>
-      `).join('');
+    const box = $("#cart-items");
+    if (box){
+        if (cart.length===0) box.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center"><i data-lucide="shopping-basket" class="w-16 h-16 text-gray-300"></i><p class="text-gray-500 mt-4">Troli anda kosong.</p></div>';
+        else {
+            box.innerHTML = cart.map(it=>`
+                <div class="flex items-start gap-4 mb-4 pb-4 border-b">
+                  <img src="${it.image_url || 'https://placehold.co/80x80'}" alt="${it.name}" class="w-20 h-20 object-cover rounded-md border">
+                  <div class="flex-grow">
+                    <p class="text-sm font-semibold">${it.name}</p>
+                    <p class="text-sm font-bold my-1">${money(it.price*it.quantity)}</p>
+                    <div class="flex items-center gap-3 my-1">
+                      <button data-action="decrement" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">-</button>
+                      <span class="font-bold text-sm">${it.quantity}</span>
+                      <button data-action="increment" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">+</button>
+                    </div>
+                  </div>
+                  <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
+                </div>
+            `).join('');
+        }
     }
-  }
-  const items = cart.reduce((s,i)=>s+i.quantity,0);
-  ["#cart-count","#mobile-cart-count"].forEach(sel=>{ const el=$(sel); if (el) el.textContent = items; });
-  const subEl=$("#cart-subtotal"); if (subEl) subEl.textContent = money(cartSubtotal());
-  const totEl=$("#cart-total");    if (totEl) totEl.textContent = money(cartTotal());
-  localStorage.setItem(KEYS.CART, JSON.stringify(cart));
-  iconify();
+    const cartItems = cart.reduce((s,i)=>s+i.quantity,0);
+    $("#cart-count").textContent = cartItems;
+    $("#mobile-cart-count").textContent = cartItems;
+    $("#wishlist-count").textContent = wishlist.length;
+
+    const subEl=$("#cart-subtotal"); if (subEl) subEl.textContent = money(cartSubtotal());
+    const totEl=$("#cart-total");    if (totEl) totEl.textContent = money(cartTotal());
+    localStorage.setItem(KEYS.CART, JSON.stringify(cart));
+    iconify();
 }
 function addToCart(p){
-  const it = cart.find(x=>String(x.id)===String(p.id));
-  if (it){ if (it.quantity<p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); } else return showToast(`Stok ${p.name} tidak mencukupi!`,'error'); }
-  else { if (p.stock>0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 }); }
-  renderCart();
+    const it = cart.find(x=>String(x.id)===String(p.id));
+    if (it){ if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); } else return showToast(`Stok ${p.name} tidak mencukupi!`,'error'); }
+    else { if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 }); else return showToast(`Stok ${p.name} habis!`, 'error'); }
+    renderCart();
+    const cartBtn = $("#cart-btn");
+    if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
 }
 const removeFromCart = id => { cart = cart.filter(i=>String(i.id)!==String(id)); renderCart(); };
-function updateQuantity(id, d){
-  const it = cart.find(i=>String(i.id)===String(id)); if (!it) return;
-  const q = it.quantity + d; if (q<=0) return removeFromCart(id);
-  const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id)); if (q>(p?.stock||0)) return showToast(`Stok ${p?.name||''} tidak mencukupi!`,'error');
-  it.quantity=q; renderCart();
+async function updateQuantity(id, d){
+    const it = cart.find(i=>String(i.id)===String(id)); if (!it) return;
+    const q = it.quantity + d; if (q<=0) return removeFromCart(id);
+    const { data: p } = await supabase.from('products').select('stock, name').eq('id', id).single();
+    if (!p || q > p.stock) return showToast(`Stok ${p?.name||''} tidak mencukupi!`,'error');
+    it.quantity=q; renderCart();
 }
 
 /* ====== PANELS & NAV ====== */
@@ -299,110 +314,103 @@ function togglePanel(id, forceOpen=null){
   const el = document.getElementById(id);
   const overlay = $("#overlay");
   if (!el || !overlay) return;
-  const willOpen = forceOpen!==null ? forceOpen : (el.classList.contains('hidden') || el.style.transform);
-  if (willOpen){
-    if (!id.endsWith('-modal')) overlay.classList.remove('hidden'); else overlay.classList.add('hidden');
-    if (id.endsWith('-modal')){ el.classList.add('show'); el.classList.remove('hidden'); }
-    else if (id==='search-modal'){ el.style.transform='translateY(0)'; }
-    else if (id==='mobile-menu'){ el.style.transform='translateX(0)'; }
-    else { el.style.transform='translateX(0)'; }
-  } else { closeAllPanels(); }
+  const willOpen = forceOpen !== null ? forceOpen : el.style.transform.includes('100');
+  overlay.classList.toggle('hidden', !willOpen);
+  if (willOpen) {
+    if (id.endsWith('-modal')) { el.classList.add('show'); el.classList.remove('hidden'); }
+    else { el.style.transform = 'translateX(0%)'; if (id === 'search-modal') el.style.transform = 'translateY(0%)'; }
+  } else {
+    closeAllPanels();
+  }
 }
 function closeAllPanels(){
   const overlay = $("#overlay"); if (overlay) overlay.classList.add('hidden');
-  const mm=$("#mobile-menu"); if (mm) mm.style.transform='translateX(-100%)';
-  const cp=$("#cart-panel");  if (cp) cp.style.transform='translateX(100%)';
-  const sm=$("#search-modal");if (sm) sm.style.transform='translateY(-100%)';
-  ["#product-form-modal","#checkout-modal","#receipt-modal"].forEach(sel=>{
-    const el=$(sel); if (!el) return; el.classList.remove('show'); el.classList.add('hidden'); if (sel==="#receipt-modal") el.remove();
-  });
+  $("#mobile-menu").style.transform='translateX(-100%)';
+  $("#cart-panel").style.transform='translateX(100%)';
+  $("#search-modal").style.transform='translateY(-100%)';
+  $$(".modal").forEach(m => m.classList.remove('show'));
 }
-function switchView(view){
+async function switchView(view){
   $$('.view').forEach(v=>v.classList.remove('active'));
-  const tgt = document.querySelector(`#${view}-view`);
-  if (tgt){ tgt.classList.add('active'); window.scrollTo({ top:0, behavior:'smooth' }); }
+  const tgt = $(`#${view}-view`);
+  if (tgt) {
+    tgt.classList.add('active'); 
+    window.scrollTo({ top:0, behavior:'smooth' });
+    if (view === 'admin') { await applyAuthGate(); await renderAuthArea(); await renderAdmin(); }
+    if (['home', 'all-products'].includes(view)) { await loadPage(); }
+    if (view === 'wishlist') { await renderWishlist(); }
+  }
 }
 
-/* ====== ADMIN Rendering ====== */
+/* ====== ADMIN ====== */
 async function renderAdmin(){
-  const orders = await fetchOrders();
-  const tp = $("#admin-total-products"); if (tp) tp.textContent = TOTAL_PRODUCTS;
-  const to = $("#admin-total-orders");   if (to) to.textContent = orders.length;
-  const totalSales = orders.reduce((s,o)=> s + Number(o.total||0), 0);
-  const ts = $("#admin-total-sales");    if (ts) ts.textContent = money(totalSales);
+  const [orders, {rows: adminProducts, count}] = await Promise.all([
+    fetchOrders(), 
+    fetchProductsServer({ page: 1, pageSize: 100 }) // Fetch more for admin view
+  ]);
+  TOTAL_PRODUCTS = count;
 
-  const list = $("#admin-product-list");
-  if (list){
-    let html = `
-      <table class="min-w-full bg-white rounded-lg overflow-hidden">
-        <thead class="bg-gray-50">
-          <tr>
-            <th class="py-2 px-4 text-left">Nama</th>
-            <th class="py-2 px-4 text-left hidden md:table-cell">Kategori</th>
-            <th class="py-2 px-4 text-left hidden md:table-cell">Stok</th>
-            <th class="py-2 px-4 text-left">Harga</th>
-            <th class="py-2 px-4 text-left">Tindakan</th>
-          </tr>
-        </thead>
-        <tbody>`;
-    ALL_PRODUCTS.forEach(p=>{
-      html += `
-        <tr class="text-sm text-gray-700 border-t">
-          <td class="py-2 px-4">${p.name}</td>
-          <td class="py-2 px-4 hidden md:table-cell">${p.category||'-'}</td>
-          <td class="py-2 px-4 hidden md:table-cell">${p.stock}</td>
-          <td class="py-2 px-4">${money(p.price)}</td>
-          <td class="py-2 px-4">
-            <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 mr-2">Edit</button>
-            <button data-action="delete-product" data-id="${p.id}" class="text-red-600">Padam</button>
-          </td>
-        </tr>`;
-    });
-    html += `</tbody></table>`;
-    list.innerHTML = html;
+  $("#admin-total-products").textContent = TOTAL_PRODUCTS;
+  $("#admin-total-orders").textContent = orders.length;
+  $("#admin-total-sales").textContent = money(orders.reduce((s,o)=> s + Number(o.total||0), 0));
+  
+  const productList = $("#admin-product-list");
+  if (productList) {
+    productList.innerHTML = `
+      <table class="min-w-full bg-white rounded-lg overflow-hidden border">
+        <thead class="bg-gray-50"><tr class="text-left text-xs text-gray-500 uppercase">
+          <th class="py-2 px-4">Nama</th><th class="py-2 px-4 hidden md:table-cell">Kategori</th>
+          <th class="py-2 px-4 hidden md:table-cell">Stok</th><th class="py-2 px-4">Harga</th><th class="py-2 px-4">Tindakan</th>
+        </tr></thead>
+        <tbody>${adminProducts.map(p => `
+          <tr class="text-sm text-gray-700 border-t">
+            <td class="py-2 px-4 font-semibold">${p.name}</td>
+            <td class="py-2 px-4 hidden md:table-cell">${p.category||'-'}</td>
+            <td class="py-2 px-4 hidden md:table-cell">${p.stock}</td>
+            <td class="py-2 px-4">${money(p.price)}</td>
+            <td class="py-2 px-4">
+              <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-2">Edit</button>
+              <button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline">Padam</button>
+            </td>
+          </tr>`).join('')}
+        </tbody></table>`;
   }
-
   const orderList = $("#admin-order-list");
-  if (orderList){
-    if (orders.length===0) orderList.innerHTML = '<p>Tiada pesanan lagi.</p>';
+  if (orderList) {
+    if (orders.length === 0) orderList.innerHTML = '<p>Tiada pesanan lagi.</p>';
     else {
-      orderList.innerHTML = orders.map(o=>`
+      orderList.innerHTML = orders.map(o => `
         <div class="bg-white rounded-lg border p-4 mb-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h4 class="font-bold">Pesanan #${o.id}</h4>
+            <h4 class="font-bold">Pesanan #${o.id.slice(-6)}</h4>
             <span class="text-sm text-gray-600">${new Date(o.date).toLocaleString()}</span>
           </div>
-          <ul class="text-sm mt-2 list-disc pl-6">
-            ${(o.items||[]).map(i=>`<li>${i.qty}x ${i.name} — ${money(i.price*i.qty)}</li>`).join('')}
-          </ul>
-          <div class="flex items-center justify-between mt-2">
+          <p class="text-sm mt-1">Kepada: ${o.address.name}</p>
+          <ul class="text-sm mt-2 list-disc pl-6">${(o.items||[]).map(i=>`<li>${i.qty}x ${i.name} — ${money(i.price*i.qty)}</li>`).join('')}</ul>
+          <div class="flex items-center justify-between mt-2 pt-2 border-t">
             <p class="font-bold">Jumlah: ${money(o.total)}</p>
             <div class="flex items-center gap-2">
               <label class="text-sm">Status:</label>
-              <select data-order="${o.id}" class="order-status border rounded p-1 text-sm">
+              <select data-order="${o.id}" class="order-status border rounded p-1 text-sm bg-gray-50">
                 ${['Pending','Processing','Shipped','Completed','Cancelled'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
               </select>
             </div>
           </div>
-        </div>
-      `).join('');
+        </div>`).join('');
     }
   }
-  iconify();
 }
 
-/* ====== LOAD CURRENT PAGE ====== */
+/* ====== LOAD PAGE CONTENT ====== */
 async function loadPage(){
-  const { rows, count } = await fetchProductsServer({
-    page: currentPage,
-    term: CURRENT_FILTER.term,
-    category: CURRENT_FILTER.category,
-    sort: CURRENT_FILTER.sort
-  });
+  const grid = $("#all-product-grid");
+  renderSkeletonGrid(grid);
+  const { rows, count } = await fetchProductsServer({ page: currentPage, term: CURRENT_FILTER.term, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
   ALL_PRODUCTS = rows;
   TOTAL_PRODUCTS = count;
   renderCategories();
-  renderGrid();
+  renderGrid(ALL_PRODUCTS, grid, 'Tiada produk ditemui.');
+  renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'Tiada produk pilihan.');
   renderPagination();
 }
 
@@ -410,93 +418,62 @@ async function loadPage(){
 document.addEventListener('DOMContentLoaded', async ()=>{
   iconify();
   await applyAuthGate();
-  await renderAuthArea();
   await loadPage();
   renderCart();
 
-  // Nav links
   document.body.addEventListener('click', async (e)=>{
     const nav = e.target.closest('.nav-link');
-    if (nav && nav.dataset.view){
-      e.preventDefault();
-      if (nav.dataset.view==='admin'){
-        const isAdmin = await applyAuthGate();
-        if (!isAdmin) return;
+    const actionBtn = e.target.closest('button[data-action]');
+    const detailBtn = e.target.closest('[data-action="view-detail"]');
+
+    if (nav?.dataset.view){ e.preventDefault(); switchView(nav.dataset.view); closeAllPanels(); }
+    if (detailBtn) { switchView('product-detail'); renderProductDetail(detailBtn.dataset.id); }
+
+    if (actionBtn){
+      const { action, id } = actionBtn.dataset;
+      const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
+      if (action==='add-to-cart' && p) addToCart(p);
+      if (action==='remove-from-cart') removeFromCart(id);
+      if (action==='increment') updateQuantity(id,+1);
+      if (action==='decrement') updateQuantity(id,-1);
+      if (action==='toggle-wishlist'){
+        if (wishlist.includes(id)) wishlist = wishlist.filter(x=>x!==id); else wishlist.push(id);
+        localStorage.setItem(KEYS.WISHLIST, JSON.stringify(wishlist));
+        showToast('Wishlist dikemaskini'); renderCart();
+        if ($("#all-products-view").classList.contains('active')) renderGrid(ALL_PRODUCTS, $('#all-product-grid'));
+        if ($("#wishlist-view").classList.contains('active')) await renderWishlist();
+        if ($("#product-detail-view").classList.contains('active')) await renderProductDetail(id);
       }
-      switchView(nav.dataset.view);
-      if (nav.dataset.view==='admin'){ await renderAuthArea(); await renderAdmin(); }
-      if (['home','all-products'].includes(nav.dataset.view)) { await loadPage(); }
-      closeAllPanels();
+      if (action==='edit-product') openProductForm(id);
+      if (action==='delete-product'){
+        if (!confirm("Padam produk ini?")) return;
+        try { await deleteProduct(id); showToast('Produk dipadam'); await loadPage(); await renderAdmin(); }
+        catch(err) { showToast(err.message||'Gagal padam','error'); }
+      }
     }
 
     if (e.target.closest('#menu-btn')) togglePanel('mobile-menu');
     if (e.target.closest('#cart-btn') || e.target.closest('#mobile-cart-btn')) togglePanel('cart-panel');
     if (e.target.closest('#search-btn')){ togglePanel('search-modal'); $("#search-input")?.focus(); }
-    if (e.target.closest('#close-cart-btn') || e.target.closest('#close-search-btn') || e.target.closest('#overlay')) closeAllPanels();
-
-    // card click → detail
-    const cardEl = e.target.closest('.product-card');
-    if (cardEl && !e.target.closest('button[data-action]')){ switchView('product-detail'); renderProductDetail(cardEl.dataset.id); }
-
-    // action buttons
-    const btn = e.target.closest('button[data-action]');
-    if (btn){
-      const id = btn.dataset.id;
-      const action = btn.dataset.action;
-      if (action==='view-detail'){ switchView('product-detail'); renderProductDetail(id); }
-      if (action==='toggle-wishlist'){
-        const pid = String(id);
-        if (wishlist.includes(pid)) wishlist = wishlist.filter(x=>x!==pid);
-        else wishlist.push(pid);
-        localStorage.setItem(KEYS.WISHLIST, JSON.stringify(wishlist));
-        const wc = $("#wishlist-count"); if (wc) wc.textContent = wishlist.length;
-        renderGrid(); showToast('Wishlist dikemaskini');
-      }
-      if (action==='add-to-cart'){ const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id)); if (p) addToCart(p); }
-      if (action==='remove-from-cart') removeFromCart(id);
-      if (action==='increment') updateQuantity(id,+1);
-      if (action==='decrement') updateQuantity(id,-1);
-      if (action==='edit-product') openProductForm(id);
-      if (action==='delete-product'){
-        if (!confirm("Padam produk ini?")) return;
-        try{ await deleteProduct(id); showToast('Produk dipadam'); await loadPage(); await renderAdmin(); }
-        catch(err){ showToast(err.message||'Gagal padam','error'); }
-      }
-    }
+    if (e.target.closest('#close-cart-btn') || e.target.closest('#close-search-btn') || e.target.id === 'overlay') closeAllPanels();
+    if (e.target.closest('#close-checkout-modal-btn')) togglePanel('checkout-modal', false);
   });
 
-  // Search + Sort + Category
   $("#search-input")?.addEventListener('input', async (e)=>{
-    CURRENT_FILTER.term = e.target.value;
-    CURRENT_FILTER.category = 'Semua';
-    currentPage = 1;
-    switchView('all-products');
-    await loadPage();
+    CURRENT_FILTER.term = e.target.value; currentPage = 1;
+    if (!$('#all-products-view').classList.contains('active')) switchView('all-products');
+    else await loadPage();
   });
   $("#category-filters")?.addEventListener('click', async (e)=>{
-    if (e.target.tagName==='BUTTON'){
-      CURRENT_FILTER.category = e.target.dataset.category;
-      currentPage = 1;
-      await loadPage();
-    }
+    if (e.target.tagName==='BUTTON'){ currentPage = 1; CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); }
   });
-  $("#sort-select")?.addEventListener('change', async (e)=>{
-    CURRENT_FILTER.sort = e.target.value;
-    currentPage = 1;
-    await loadPage();
-  });
-
-  // Pagination
+  $("#sort-select")?.addEventListener('change', async (e)=>{ currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#pagination")?.addEventListener('click', async (e)=>{
     const b = e.target.closest('button[data-page]');
-    if (!b) return;
-    currentPage = Number(b.dataset.page)||1;
-    await loadPage();
+    if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); }
   });
-
-  // Cart controls
   $("#checkout-btn")?.addEventListener('click', ()=> { if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); });
-  $("#close-checkout-modal-btn")?.addEventListener('click', ()=> togglePanel('checkout-modal', false));
+
   $("#apply-coupon-btn")?.addEventListener('click', ()=>{
     const input = $("#coupon-input"); if (!input) return;
     const code = input.value.trim().toUpperCase();
@@ -506,67 +483,75 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (!applied) return showToast('Kupon tidak sah','error');
     coupon=applied; localStorage.setItem(KEYS.COUPON, JSON.stringify(coupon)); renderCart(); showToast(`Kupon ${code} digunakan`);
   });
-  $("#shipping-method")?.addEventListener('change', e=>{
-    shipping=e.target.value;
-    localStorage.setItem(KEYS.SHIPPING, shipping); // ✅ fixed missing quote
-    renderCart();
+  $("#shipping-method")?.addEventListener('change', e=>{ shipping=e.target.value; localStorage.setItem(KEYS.SHIPPING, shipping); renderCart(); });
+  $("#admin-tabs")?.addEventListener('click', e => {
+      const btn = e.target.closest('.admin-tab'); if (!btn) return;
+      $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      $$('.admin-tab-content').forEach(c => c.classList.add('hidden'));
+      $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
   });
-
-  // Checkout submit
+  $('#export-json')?.addEventListener('click', async () => {
+    showToast('Mengeksport semua produk...');
+    const { data } = await supabase.from('products').select('name,description,price,category,stock,image_url');
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = `kisuka_culture_products_${new Date().toISOString().split('T')[0]}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    showToast('Produk dieksport!');
+  });
+  $('#import-json')?.addEventListener('change', e => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        try {
+            const products = JSON.parse(event.target.result);
+            if (!Array.isArray(products)) throw new Error('JSON mesti dalam bentuk array.');
+            showToast(`Mengimport ${products.length} produk...`);
+            const { error } = await supabase.from('products').upsert(products, { onConflict: 'name' });
+            if (error) throw error;
+            showToast('Produk berjaya diimport!', 'success');
+            await loadPage(); await renderAdmin();
+        } catch(err) { showToast(err.message || 'Gagal mengimport JSON.', 'error'); }
+    };
+    reader.readAsText(file);
+  });
   $("#checkout-form")?.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    for (const it of cart){
-      const p = ALL_PRODUCTS.find(x=>String(x.id)===String(it.id));
-      if (!p || it.quantity > p.stock) return showToast(`Stok ${p?.name||''} tidak mencukupi!`,'error');
-    }
-    const form = { name:$("#co-name").value.trim(), phone:$("#co-phone").value.trim(), address:$("#co-address").value.trim(), payment:$("#co-payment").value, note:$("#co-note").value.trim() };
     const order = {
       id: uid().toUpperCase(), date: new Date().toISOString(),
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
-      subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(),
-      status:'Pending', address: form
+      subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status:'Pending', 
+      address: { name:$("#co-name").value.trim(), phone:$("#co-phone").value.trim(), address:$("#co-address").value.trim() }
     };
-    try{
-      for (const it of cart){
-        const p = ALL_PRODUCTS.find(x=>String(x.id)===String(it.id));
-        if (p) await supabase.from('products').update({ stock: p.stock - it.quantity }).eq('id', p.id);
-      }
+    try {
+      const stockUpdates = cart.map(it => supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id));
+      await Promise.all(stockUpdates);
       await createOrder(order);
       cart = []; localStorage.setItem(KEYS.CART, JSON.stringify(cart));
       coupon=null; localStorage.removeItem(KEYS.COUPON);
-      renderCart(); togglePanel('checkout-modal', false); closeAllPanels();
+      renderCart(); togglePanel('checkout-modal', false);
       showToast('Pesanan disahkan!'); showReceipt(order);
       await loadPage();
-    }catch(err){ showToast(err.message||'Ralat semasa membuat pesanan','error'); }
+    } catch(err) { showToast(err.message||'Ralat semasa membuat pesanan','error'); }
   });
-
-  // Product form
   $("#add-product-btn")?.addEventListener('click', ()=> openProductForm());
   $("#cancel-product-form-btn")?.addEventListener('click', ()=> togglePanel('product-form-modal', false));
   $("#product-form")?.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    const { data:{ user } } = await supabase.auth.getUser();
-    if (!user || user.user_metadata?.role!=='admin') return showToast("Hanya admin boleh simpan.", 'error');
-    const idVal = $("#product-id").value;
     const rec = {
-      id: idVal || null,
-      name: $("#product-name").value.trim(),
-      price: parseFloat($("#product-price").value),
-      stock: parseInt($("#product-stock").value,10),
-      category: $("#product-category").value.trim(),
-      image_url: $("#product-image").value.trim(),
-      description: $("#product-description").value.trim()
+      id: $("#product-id").value || null, name: $("#product-name").value.trim(), price: parseFloat($("#product-price").value),
+      stock: parseInt($("#product-stock").value,10), category: $("#product-category").value.trim(),
+      image_url: $("#product-image").value.trim(), description: $("#product-description").value.trim()
     };
     const file = $("#product-image-file").files[0] || null;
-    try{ await createOrUpdateProduct(rec, file); togglePanel('product-form-modal', false); showToast('Produk disimpan!'); await loadPage(); await renderAdmin(); }
-    catch(err){ showToast(err.message||'Gagal simpan', 'error'); }
+    try { await createOrUpdateProduct(rec, file); togglePanel('product-form-modal', false); showToast('Produk disimpan!'); await loadPage(); await renderAdmin(); }
+    catch(err) { showToast(err.message||'Gagal simpan', 'error'); }
   });
-
-  // Order status change
   document.body.addEventListener('change', async (e)=>{
     if (e.target.classList.contains('order-status')){
-      const { data:{ user } } = await supabase.auth.getUser();
-      if (!user || user.user_metadata?.role!=='admin') return showToast('Hanya admin boleh ubah status','error');
       const id = e.target.getAttribute('data-order');
       const { error } = await supabase.from('orders').update({ status:e.target.value }).eq('id', id);
       if (error) return showToast('Gagal kemaskini','error');
@@ -577,45 +562,38 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
 /* ====== Form helpers & receipt ====== */
 function openProductForm(id=null){
-  const f = $("#product-form");
-  if (!f) return;
-  f.reset(); $("#product-id").value=""; const fileEl = $("#product-image-file"); if (fileEl) fileEl.value="";
-  if (id){
-    const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id)); if (!p) return;
+  const f = $("#product-form"); if (!f) return;
+  f.reset(); $("#product-id").value=""; $("#product-image-file").value="";
+  const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
+  if (p) {
     $("#product-form-title").textContent='Kemas Kini Produk';
-    $("#product-id").value = p.id;
-    $("#product-name").value = p.name;
-    $("#product-price").value = p.price;
-    $("#product-stock").value = p.stock;
-    $("#product-category").value = p.category||'Umum';
-    $("#product-image").value = p.image_url||'';
-    $("#product-description").value = p.description||'';
+    $("#product-id").value = p.id; $("#product-name").value = p.name; $("#product-price").value = p.price;
+    $("#product-stock").value = p.stock; $("#product-category").value = p.category||'';
+    $("#product-image").value = p.image_url||''; $("#product-description").value = p.description||'';
   } else {
     $("#product-form-title").textContent='Tambah Produk Baharu';
   }
   togglePanel('product-form-modal', true);
 }
 function showReceipt(order){
-  const lines = (order.items||[]).map(i=>`${i.qty}x ${i.name} — ${money(i.price*i.qty)}`).join('<br>');
-  const couponText = coupon ? (coupon.type==='percent'? `Kupon ${coupon.code} (-${coupon.amount}%)` : `Kupon ${coupon.code} (Penghantaran Percuma)`) : 'Tiada';
+  const couponText = coupon ? `${coupon.code} (${coupon.type==='percent'?`-${coupon.amount}%`:'Percuma'})` : 'Tiada';
   const html = `
     <div class="modal show" id="receipt-modal">
-      <div class="modal-card">
+      <div class="modal-card max-w-sm">
         <h3 class="text-xl font-extrabold mb-2 text-center">Resit Pesanan</h3>
-        <p class="text-center text-sm text-gray-500">#${order.id} • ${new Date(order.date).toLocaleString()}</p>
-        <div class="border-t my-3"></div>
-        <div class="text-sm">${lines}</div>
-        <div class="mt-3 text-sm">
+        <p class="text-center text-sm text-gray-500">#${order.id.slice(-6)} &bull; ${new Date(order.date).toLocaleString()}</p>
+        <div class="border-t my-4"></div>
+        <div class="text-sm space-y-1">${(order.items||[]).map(i=>`<div class="flex justify-between"><span>${i.qty}x ${i.name}</span><span>${money(i.price*i.qty)}</span></div>`).join('')}</div>
+        <div class="border-t my-4"></div>
+        <div class="mt-3 text-sm space-y-1">
           <div class="flex justify-between"><span>Subtotal</span><span>${money(order.subtotal)}</span></div>
           <div class="flex justify-between"><span>Kupon</span><span>${couponText}</span></div>
-          <div class="flex justify-between"><span>Penghantaran (${order.shipping})</span><span>${money(order.shippingFee)}</span></div>
-          <div class="flex justify-between font-bold text-lg pt-1"><span>Jumlah</span><span>${money(order.total)}</span></div>
+          <div class="flex justify-between"><span>Penghantaran</span><span>${money(order.shippingFee)}</span></div>
+          <div class="flex justify-between font-bold text-lg pt-2 mt-2 border-t"><span>Jumlah</span><span>${money(order.total)}</span></div>
         </div>
-        <div class="border-t my-3"></div>
-        <p class="text-xs text-gray-500">Alamat: ${order.address?.name}, ${order.address?.phone}. ${order.address?.address}</p>
-        <div class="flex justify-end pt-4">
-          <button class="px-4 py-2 rounded bg-cyan-600 text-white" id="receipt-close">Tutup</button>
-        </div>
+        <div class="border-t my-4"></div>
+        <p class="text-xs text-gray-500">Alamat: ${order.address?.name}, ${order.address?.address}</p>
+        <div class="flex justify-end pt-4"><button class="btn-primary" id="receipt-close">Tutup</button></div>
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
