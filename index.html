@@ -89,19 +89,23 @@
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-2xl md:text-3xl font-bold text-gray-800">Semua Produk</h2>
             <div class="flex gap-2">
-              <select id="sort-select" class="border rounded-md p-2 text-sm">
-                <option value="popular">Paling popular</option>
-                <option value="price-asc">Harga: Rendah → Tinggi</option>
-                <option value="price-desc">Harga: Tinggi → Rendah</option>
-                <option value="newest">Terbaru</option>
+               <select id="sort-select" class="border rounded-md p-2 text-sm">
+                 <option value="popular">Paling popular</option>
+                 <option value="price-asc">Harga: Rendah → Tinggi</option>
+                  <option value="price-desc">Harga: Tinggi → Rendah</option>
+                 <option value="newest">Terbaru</option>
               </select>
             </div>
           </div>
 
-          <div id="category-filters" class="flex flex-wrap gap-2 mt-4"></div>
-          <div id="all-product-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 mt-4"></div>
+            <div id="category-filters" class="flex flex-wrap gap-2 mt-4"></div>
+           <div id="all-product-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 mt-4"></div>
+
+          <!-- 👇 Tambah barisan pagination ini -->
+          <div id="pagination" class="flex flex-wrap items-center gap-2 justify-center mt-6"></div>
         </section>
       </div>
+
 
       <!-- PRODUCT DETAIL -->
       <div id="product-detail-view" class="view"></div>
