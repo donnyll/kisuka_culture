@@ -5,6 +5,14 @@ const STORAGE_BUCKET = "kisuka_culture";
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+/* ====== Bank Settings (edit ikut akaun anda) ====== */
+const BANK = {
+  name: 'Maybank',
+  account: '123456789012',
+  accountName: 'Kisuka Culture',
+  whatsapp: '60123456789' // tanpa +; contoh 60123456789
+};
+
 /* ====== Helpers ====== */
 const $  = (s, r=document)=>r.querySelector(s);
 const $$ = (s, r=document)=>[...r.querySelectorAll(s)];
@@ -32,18 +40,18 @@ let CURRENT_FILTER = { category:'Semua', term:'', sort:'popular' };
 let currentPage = 1;
 const pageSize = 8;
 
-let CATEGORIES = [];       // from DB
-let HERO_IMAGE_URL = null; // from DB
-
-/* ====== AUTH GATE (fixed) ====== */
-async function applyAuthGate(redirectIfDenied = false) {
+/* ====== AUTH GATE ====== */
+async function applyAuthGate(){
   const { data: { user } } = await supabase.auth.getUser();
   const links = $$('[data-view="admin"]');
   const isAdmin = !!user && user.user_metadata?.role === "admin";
   links.forEach(a => a.style.display = isAdmin ? "" : "none");
-  if (!isAdmin && redirectIfDenied) {
-    showToast("Anda perlu login sebagai admin untuk akses panel ini", "error");
+
+  const adminView = $("#admin-view");
+  const isOnAdmin = adminView && adminView.classList.contains("active");
+  if (!isAdmin && isOnAdmin){
     switchView("home");
+    showToast("Anda perlu login sebagai admin untuk akses panel ini", "error");
   }
   return isAdmin;
 }
@@ -54,7 +62,9 @@ async function renderAuthArea(){
   if (!area) return;
 
   if (user && user.user_metadata?.role === "admin"){
-    area.innerHTML = `<span class="text-sm text-gray-600 hidden md:inline">Log masuk sebagai <strong>${user.email}</strong></span><button id="logout-btn" class="btn-light !py-2 !px-3">Log Keluar</button>`;
+    area.innerHTML = `
+      <span class="text-sm text-gray-600 hidden md:inline">Log masuk sebagai <strong>${user.email}</strong></span>
+      <button id="logout-btn" class="btn-light !py-2 !px-3">Log Keluar</button>`;
     $("#logout-btn")?.addEventListener("click", async ()=>{
       await supabase.auth.signOut();
       await applyAuthGate();
@@ -63,11 +73,11 @@ async function renderAuthArea(){
     });
   } else {
     area.innerHTML = `
-    <form id="login-form" class="flex gap-2 flex-wrap">
-      <input type="email" id="login-email" placeholder="admin@email.com" class="border rounded-md p-2 text-sm" required>
-      <input type="password" id="login-pass" placeholder="kata laluan" class="border rounded-md p-2 text-sm" required>
-      <button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button>
-    </form>`;
+      <form id="login-form" class="flex gap-2">
+        <input type="email" id="login-email" placeholder="admin@email.com" class="border rounded-md p-2 text-sm" required>
+        <input type="password" id="login-pass" placeholder="kata laluan" class="border rounded-md p-2 text-sm" required>
+        <button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button>
+      </form>`;
     iconify();
     $("#login-form")?.addEventListener("submit", async (e)=>{
       e.preventDefault();
@@ -83,50 +93,12 @@ async function renderAuthArea(){
   }
 }
 
-/* ====== SETTINGS & CATEGORIES ====== */
-async function fetchSettings() {
-  const { data, error } = await supabase.from('settings').select('*').eq('key','hero_image_url').maybeSingle();
-  if (!error && data) HERO_IMAGE_URL = data.value;
-  const heroImg = $('#hero-img'); const heroPrev = $('#hero-preview');
-  if (heroImg && HERO_IMAGE_URL) heroImg.src = HERO_IMAGE_URL;
-  if (heroPrev) heroPrev.src = HERO_IMAGE_URL || (heroImg ? heroImg.src : '');
-}
-async function saveHeroImage(file) {
-  if (!file) throw new Error('Pilih gambar dahulu.');
-  const path = `settings/hero_${uid()}.${(file.name.split('.').pop()||'jpg').toLowerCase()}`;
-  const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
-  if (upErr) throw upErr;
-  const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-  const url = pub.publicUrl;
-  const { error } = await supabase.from('settings').upsert({ key:'hero_image_url', value: url });
-  if (error) throw error;
-  HERO_IMAGE_URL = url;
-  const heroImg = $('#hero-img'); const heroPrev = $('#hero-preview');
-  if (heroImg) heroImg.src = url;
-  if (heroPrev) heroPrev.src = url;
-}
-
-async function fetchCategories() {
-  const { data, error } = await supabase.from('categories').select('*').order('name');
-  if (!error && data) CATEGORIES = data;
-  return CATEGORIES;
-}
-async function addCategory(name) {
-  const { error } = await supabase.from('categories').insert({ name });
-  if (error) throw error;
-}
-async function deleteCategory(id) {
-  const { error } = await supabase.from('categories').delete().eq('id', id);
-  if (error) throw error;
-}
-
 /* ====== SERVER DATA ====== */
 async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
   let query = supabase.from('products').select('*', { count: 'exact' });
   if (ids) {
     query = query.in('id', ids);
-  }
-  else {
+  } else {
     const from = (page-1)*pageSize;
     const to = from + pageSize - 1;
     if (term.trim()) query = query.ilike('name', `%${term}%`);
@@ -148,54 +120,24 @@ async function fetchOrders(){
   if (error){ showToast("Gagal memuat pesanan", 'error'); return []; }
   return data || [];
 }
-
-/* ====== Create/Update Product (multi-image) ====== */
-async function createOrUpdateProduct(record, files){
-  let images = [];
-  try {
-    images = JSON.parse($('#product-existing-images')?.value || '[]');
-    if (!Array.isArray(images)) images = [];
-  } catch { images = []; }
-
-  if (record.image_url && record.image_url.trim()) {
-    const url = record.image_url.trim();
-    images = [url, ...images.filter(x => x !== url)];
+async function createOrUpdateProduct(record, file){
+  let image_url = record.image_url?.trim() || "";
+  if (file){
+    const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+    const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:true });
+    if (upErr) throw upErr;
+    const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+    image_url = pub.publicUrl;
   }
-
-  if (files && files.length) {
-    const uploads = [];
-    for (const file of files) {
-      const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
-      const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${ext}`;
-      uploads.push(
-        supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:true })
-          .then(({ error }) => {
-            if (error) throw error;
-            const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-            images.push(pub.publicUrl);
-          })
-      );
-    }
-    await Promise.all(uploads);
-  }
-
   const payload = {
-    name: record.name,
-    description: record.description,
-    price: Number(record.price),
-    category: record.category,
-    stock: Number(record.stock),
-    image_url: images[0] || '',
-    images
+    name: record.name, description: record.description, price: Number(record.price),
+    category: record.category, stock: Number(record.stock), image_url
   };
-
-  if (record.id) {
-    const { error } = await supabase.from('products').update(payload).eq('id', record.id);
-    if (error) throw error;
-  } else {
-    const { error } = await supabase.from('products').insert(payload);
-    if (error) throw error;
-  }
+  const { error } = record.id
+    ? await supabase.from('products').update(payload).eq('id', record.id)
+    : await supabase.from('products').insert(payload);
+  if (error) throw error;
 }
 async function deleteProduct(id){
   const { error } = await supabase.from('products').delete().eq('id', id);
@@ -206,9 +148,10 @@ async function createOrder(order){
   if (error) throw error;
 }
 
-/* ====== RENDER UI ====== */
+/* ====== RENDER ====== */
 const productBadge = p => {
-  const b=[]; if (p.stock === 0) b.push('<span class="text-[10px] bg-gray-800 text-white px-2 py-0.5 rounded-full font-semibold">HABIS</span>');
+  const b=[];
+  if (p.stock === 0) b.push('<span class="text-[10px] bg-gray-800 text-white px-2 py-0.5 rounded-full font-semibold">HABIS</span>');
   else if (p.stock > 0 && p.stock < 5) b.push('<span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-semibold">STOK TERHAD</span>');
   return b.join(' ');
 };
@@ -222,7 +165,7 @@ const productCard = p => {
       </button>
     </div>
     <div class="relative cursor-pointer">
-      <img src="${(p.image_url||'').trim() || 'https://placehold.co/600x600?text=Produk'}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
+      <img src="${p.image_url || 'https://placehold.co/600x600?text=Produk'}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
       ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
     </div>
     <div class="p-4 flex flex-col flex-grow">
@@ -252,7 +195,6 @@ const renderSkeletonGrid = (grid) => {
   if(!grid) return;
   grid.innerHTML = Array.from({ length: pageSize }).map(skeletonCard).join('');
 };
-
 function renderGrid(products, gridElement, emptyMsg) {
   if (!gridElement) return;
   gridElement.innerHTML = products.length
@@ -260,25 +202,17 @@ function renderGrid(products, gridElement, emptyMsg) {
     : `<p class="col-span-full text-center text-gray-500 py-12">${emptyMsg}</p>`;
   iconify();
 }
-
-/* Categories filter (uses DB categories + products) */
-async function renderCategories(){
-  const wrap = $("#category-filters");
-  if (!wrap) return;
-  const dbCats = (await fetchCategories()).map(c => c.name);
-  const prodCats = [...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean))];
-  const cats = ['Semua', ...new Set([...dbCats, ...prodCats])].sort((a,b)=>a.localeCompare(b));
+function renderCategories(){
+  const wrap = $("#category-filters"); if (!wrap) return;
+  const cats = ['Semua', ...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean).sort())];
   wrap.innerHTML = cats.map(c=> `
     <button data-category="${c}"
       class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white text-gray-700 border'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200">
       ${c}
-    </button>
-  `).join('');
+    </button>`).join('');
 }
-
 function renderPagination(){
-  const box = $("#pagination");
-  if (!box) return;
+  const box = $("#pagination"); if (!box) return;
   if (TOTAL_PRODUCTS <= pageSize) { box.innerHTML = ''; return; }
   const totalPages = Math.ceil(TOTAL_PRODUCTS / pageSize);
   let html = "";
@@ -287,63 +221,43 @@ function renderPagination(){
   }
   box.innerHTML = html;
 }
-
 async function renderProductDetail(id){
-  const view = $("#product-detail-view");
-  if (!view) return;
+  const view = $("#product-detail-view"); if (!view) return;
   view.innerHTML = `<div class="p-8 text-center">Memuat...</div>`;
   let p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
   if (!p) {
-    const res = await supabase.from('products').select('*').eq('id', id).single();
-    if (res.error || !res.data) { view.innerHTML='<p class="p-8 text-center">Produk tidak ditemui.</p>'; return; }
-    p = res.data;
+    const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
+    if (error || !data) { view.innerHTML='<p class="p-8 text-center">Produk tidak ditemui.</p>'; return; }
+    p = data;
   }
-  const images = Array.isArray(p.images) && p.images.length ? p.images : [p.image_url].filter(Boolean);
   const isWishlisted = wishlist.includes(String(p.id));
-
   view.innerHTML = `
-    <section class="max-w-6xl mx-auto p-4 md:p-8">
+    <section class="max-w-5xl mx-auto p-4 md:p-8">
       <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline">
         <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali ke Semua Produk
       </a>
       <div class="grid md:grid-cols-2 gap-8 md:gap-12">
-        <div>
-          <div class="border rounded-lg overflow-hidden">
-            <img id="pd-main" src="${images[0]||'https://placehold.co/800x800?text=Gambar'}" class="w-full object-contain max-h-[520px] bg-white">
-          </div>
-          <div class="flex flex-wrap gap-2 mt-3">
-            ${images.map((u,i)=>`<img data-idx="${i}" src="${u}" class="pd-thumb w-20 h-20 object-cover rounded border cursor-pointer ${i===0?'ring-2 ring-cyan-500':''}">`).join('')}
-          </div>
-        </div>
+        <div><img src="${p.image_url || 'https://placehold.co/800x800?text=Gambar'}" alt="${p.name}" class="w-full rounded-lg shadow-lg"></div>
         <div>
           <h2 class="text-3xl font-extrabold">${p.name}</h2>
-          <p class="text-gray-500 text-sm mt-1">Kategori: ${p.category||'-'}</p>
+          <p class="text-gray-500 text-sm mt-1">Kategori: ${p.category}</p>
           <p class="text-3xl font-bold text-gray-900 my-4">${money(p.price)}</p>
           <p class="text-gray-600 leading-relaxed">${p.description || 'Tiada penerangan.'}</p>
           ${p.stock > 0 && p.stock < 10 ? `<p class="text-red-600 font-semibold text-sm mt-4">${p.stock} unit sahaja lagi!</p>`:''}
           ${p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">HABIS DIJUAL</p>`:''}
           <div class="flex gap-3 mt-6">
             <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 transition-colors">Tambah ke Troli</button>
-            <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border flex items-center gap-2 hover:bg-gray-50"><i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600'}"></i> Wishlist</button>
+            <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border flex items-center gap-2 hover:bg-gray-50">
+              <i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600'}"></i> Wishlist
+            </button>
           </div>
         </div>
       </div>
-    </section>
-  `;
-  $('#product-detail-view')?.addEventListener('click', (e)=>{
-    const t = e.target.closest('.pd-thumb'); if (!t) return;
-    const idx = Number(t.dataset.idx)||0;
-    $('#pd-main').src = images[idx];
-    $$('.pd-thumb', view).forEach(el=>el.classList.remove('ring-2','ring-cyan-500'));
-    t.classList.add('ring-2','ring-cyan-500');
-  });
-
+    </section>`;
   iconify();
 }
-
 async function renderWishlist() {
-  const grid = $("#wishlist-grid");
-  if (!grid) return;
+  const grid = $("#wishlist-grid"); if (!grid) return;
   if (wishlist.length === 0) {
     grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>';
     return;
@@ -375,9 +289,10 @@ function renderCart(){
               <button data-action="increment" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">+</button>
             </div>
           </div>
-          <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
-        </div>
-      `).join('');
+          <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50">
+            <i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i>
+          </button>
+        </div>`).join('');
     }
   }
   const cartItems = cart.reduce((s,i)=>s+i.quantity,0);
@@ -392,8 +307,13 @@ function renderCart(){
 }
 function addToCart(p){
   const it = cart.find(x=>String(x.id)===String(p.id));
-  if (it){ if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); } else return showToast(`Stok ${p.name} tidak mencukupi!`,'error'); }
-  else { if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 }); else return showToast(`Stok ${p.name} habis!`, 'error'); }
+  if (it){
+    if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); }
+    else return showToast(`Stok ${p.name} tidak mencukupi!`,'error');
+  } else {
+    if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 });
+    else return showToast(`Stok ${p.name} habis!`, 'error');
+  }
   renderCart();
   const cartBtn = $("#cart-btn");
   if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
@@ -428,53 +348,19 @@ function closeAllPanels(){
   $("#search-modal").style.transform='translateY(-100%)';
   $$(".modal").forEach(m => m.classList.remove('show'));
 }
-
 async function switchView(view){
   $$('.view').forEach(v=>v.classList.remove('active'));
   const tgt = $(`#${view}-view`);
-  if (!tgt) return;
-
-  tgt.classList.add('active');
-  window.scrollTo({ top:0, behavior:'smooth' });
-
-  if (view === 'admin') {
-    const isAdmin = await applyAuthGate(false);
-    await renderAuthArea();
-    if (isAdmin) await renderAdmin();
-    return;
+  if (tgt) {
+    tgt.classList.add('active');
+    window.scrollTo({ top:0, behavior:'smooth' });
+    if (view === 'admin') { await applyAuthGate(); await renderAuthArea(); await renderAdmin(); }
+    if (['home', 'all-products'].includes(view)) { await loadPage(); }
+    if (view === 'wishlist') { await renderWishlist(); }
   }
-  if (['home', 'all-products'].includes(view)) { await loadPage(); return; }
-  if (view === 'wishlist') { await renderWishlist(); return; }
 }
 
 /* ====== ADMIN ====== */
-function renderCategoryManager(){
-  const box = $('#category-list');
-  if (!box) return;
-  if (!CATEGORIES.length) { box.innerHTML = '<div class="p-3 text-sm text-gray-500">Tiada kategori lagi.</div>'; return; }
-  box.innerHTML = CATEGORIES.map(c => `
-    <div class="flex items-center justify-between p-3">
-      <span class="font-medium">${c.name}</span>
-      <button data-cat-id="${c.id}" class="text-red-600 hover:underline cat-delete">Padam</button>
-    </div>
-  `).join('');
-}
-function wireCategoryActions(){
-  $('#add-category-btn')?.addEventListener('click', async ()=>{
-    const name = ($('#new-category-name')?.value||'').trim();
-    if (!name) return showToast('Masukkan nama kategori','error');
-    try { await addCategory(name); showToast('Kategori ditambah'); $('#new-category-name').value=''; await fetchCategories(); renderCategoryManager(); renderCategories(); }
-    catch (e){ showToast(e.message||'Gagal tambah kategori','error'); }
-  });
-  $('#category-list')?.addEventListener('click', async (e)=>{
-    const b = e.target.closest('.cat-delete'); if (!b) return;
-    const id = b.dataset.catId;
-    if (!confirm('Padam kategori ini?')) return;
-    try { await deleteCategory(id); showToast('Kategori dipadam'); await fetchCategories(); renderCategoryManager(); renderCategories(); }
-    catch (e){ showToast(e.message||'Gagal padam','error'); }
-  });
-}
-
 async function renderAdmin(){
   const [orders, {rows: adminProducts, count}] = await Promise.all([
     fetchOrders(),
@@ -490,24 +376,30 @@ async function renderAdmin(){
   if (productList) {
     productList.innerHTML = `
       <table class="min-w-full bg-white rounded-lg overflow-hidden border">
-        <thead class="bg-gray-50"><tr class="text-left text-xs text-gray-500 uppercase">
-          <th class="py-2 px-4">Nama</th><th class="py-2 px-4 hidden md:table-cell">Kategori</th>
-          <th class="py-2 px-4 hidden md:table-cell">Stok</th><th class="py-2 px-4">Harga</th><th class="py-2 px-4">Tindakan</th>
-        </tr></thead>
-        <tbody>${adminProducts.map(p => `
-          <tr class="text-sm text-gray-700 border-t">
-            <td class="py-2 px-4 font-semibold">${p.name}</td>
-            <td class="py-2 px-4 hidden md:table-cell">${p.category||'-'}</td>
-            <td class="py-2 px-4 hidden md:table-cell">${p.stock}</td>
-            <td class="py-2 px-4">${money(p.price)}</td>
-            <td class="py-2 px-4">
-              <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-2">Edit</button>
-              <button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline">Padam</button>
-            </td>
-          </tr>`).join('')}
-        </tbody></table>`;
+        <thead class="bg-gray-50">
+          <tr class="text-left text-xs text-gray-500 uppercase">
+            <th class="py-2 px-4">Nama</th>
+            <th class="py-2 px-4 hidden md:table-cell">Kategori</th>
+            <th class="py-2 px-4 hidden md:table-cell">Stok</th>
+            <th class="py-2 px-4">Harga</th>
+            <th class="py-2 px-4">Tindakan</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${adminProducts.map(p => `
+            <tr class="text-sm text-gray-700 border-t">
+              <td class="py-2 px-4 font-semibold">${p.name}</td>
+              <td class="py-2 px-4 hidden md:table-cell">${p.category||'-'}</td>
+              <td class="py-2 px-4 hidden md:table-cell">${p.stock}</td>
+              <td class="py-2 px-4">${money(p.price)}</td>
+              <td class="py-2 px-4">
+                <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-2">Edit</button>
+                <button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline">Padam</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
   }
-
   const orderList = $("#admin-order-list");
   if (orderList) {
     if (orders.length === 0) orderList.innerHTML = '<p>Tiada pesanan lagi.</p>';
@@ -518,7 +410,7 @@ async function renderAdmin(){
             <h4 class="font-bold">Pesanan #${o.id.slice(-6)}</h4>
             <span class="text-sm text-gray-600">${new Date(o.date).toLocaleString()}</span>
           </div>
-          <p class="text-sm mt-1">Kepada: ${o.address.name}</p>
+          <p class="text-sm mt-1">Kepada: ${o.address?.name||'-'}</p>
           <ul class="text-sm mt-2 list-disc pl-6">${(o.items||[]).map(i=>`<li>${i.qty}x ${i.name} — ${money(i.price*i.qty)}</li>`).join('')}</ul>
           <div class="flex items-center justify-between mt-2 pt-2 border-t">
             <p class="font-bold">Jumlah: ${money(o.total)}</p>
@@ -532,29 +424,21 @@ async function renderAdmin(){
         </div>`).join('');
     }
   }
-
-  // Settings (hero)
-  await fetchSettings();
-  $('#save-hero-btn')?.addEventListener('click', async ()=>{
-    const f = $('#hero-file')?.files?.[0];
-    try { await saveHeroImage(f); showToast('Hero berjaya dikemaskini'); }
-    catch (e){ showToast(e.message||'Gagal simpan hero','error'); }
-  });
-
-  // Categories
-  await fetchCategories();
-  renderCategoryManager();
-  wireCategoryActions();
 }
 
-/* ====== LOAD PAGE CONTENT ====== */
+/* ====== LOAD PAGE ====== */
 async function loadPage(){
   const grid = $("#all-product-grid");
   renderSkeletonGrid(grid);
-  const { rows, count } = await fetchProductsServer({ page: currentPage, term: CURRENT_FILTER.term, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
+  const { rows, count } = await fetchProductsServer({
+    page: currentPage,
+    term: CURRENT_FILTER.term,
+    category: CURRENT_FILTER.category,
+    sort: CURRENT_FILTER.sort
+  });
   ALL_PRODUCTS = rows;
   TOTAL_PRODUCTS = count;
-  await renderCategories();
+  renderCategories();
   renderGrid(ALL_PRODUCTS, grid, 'Tiada produk ditemui.');
   renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'Tiada produk pilihan.');
   renderPagination();
@@ -565,18 +449,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   iconify();
   await applyAuthGate();
   await loadPage();
-  await fetchSettings();
-  await fetchCategories();
-  renderCategories();
   renderCart();
-
-  // router by hash
-  const handleHashRoute = () => {
-    const route = location.hash.replace('#','').trim();
-    if (route === 'admin') switchView('admin');
-  };
-  window.addEventListener('hashchange', handleHashRoute);
-  handleHashRoute();
 
   document.body.addEventListener('click', async (e)=>{
     const nav = e.target.closest('.nav-link');
@@ -630,7 +503,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); }
   });
 
-  $("#checkout-btn")?.addEventListener('click', ()=> { if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); });
+  // Open checkout & fill bank labels
+  $("#checkout-btn")?.addEventListener('click', ()=>{
+    if (cart.length===0) return showToast('Troli anda kosong!', 'error');
+    $('#bank-name').textContent = BANK.name;
+    $('#bank-account').textContent = BANK.account;
+    $('#bank-account-name').textContent = BANK.accountName;
+    togglePanel('checkout-modal', true);
+  });
 
   $("#apply-coupon-btn")?.addEventListener('click', ()=>{
     const input = $("#coupon-input"); if (!input) return;
@@ -653,7 +533,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
   $('#export-json')?.addEventListener('click', async () => {
     showToast('Mengeksport semua produk...');
-    const { data } = await supabase.from('products').select('name,description,price,category,stock,image_url,images');
+    const { data } = await supabase.from('products').select('name,description,price,category,stock,image_url');
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -680,62 +560,82 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     reader.readAsText(file);
   });
 
+  // WhatsApp redirect (prefill message)
+  $("#whatsapp-btn")?.addEventListener('click', ()=>{
+    if (cart.length === 0) { showToast('Troli anda kosong!', 'error'); return; }
+    const name  = ($("#co-name")?.value || '').trim();
+    const phone = ($("#co-phone")?.value || '').trim();
+    const addr  = ($("#co-address")?.value || '').trim();
+
+    const lines = [];
+    lines.push('*Pesanan Baru (Manual Transfer)*', '');
+    cart.forEach(i => lines.push(`• ${i.quantity} x ${i.name} – RM${(i.price*i.quantity).toFixed(2)}`));
+    lines.push('', `Subtotal: RM${cartSubtotal().toFixed(2)}`);
+    lines.push(`Penghantaran: ${shipping==='express'?'Ekspres (RM15)':'Standard (RM8)'} -> RM${shippingFee().toFixed(2)}`);
+    lines.push(`Jumlah: RM${cartTotal().toFixed(2)}`, '');
+    if (name)  lines.push(`Nama: ${name}`);
+    if (phone) lines.push(`Telefon: ${phone}`);
+    if (addr)  lines.push(`Alamat: ${addr}`, '');
+    lines.push(`Bank: ${BANK.name}`, `No Akaun: ${BANK.account}`, `Nama Akaun: ${BANK.accountName}`);
+
+    const text = encodeURIComponent(lines.join('\n'));
+    const url  = `https://wa.me/${BANK.whatsapp}?text=${text}`;
+    window.open(url, '_blank');
+  });
+
+  // Submit checkout (upload receipt + save order)
   $("#checkout-form")?.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const order = {
-      id: uid().toUpperCase(), date: new Date().toISOString(),
+      id: uid().toUpperCase(),
+      date: new Date().toISOString(),
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
-      subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status:'Pending',
-      address: { name:$("#co-name").value.trim(), phone:$("#co-phone").value.trim(), address:$("#co-address").value.trim() }
+      subtotal: cartSubtotal(),
+      shipping,
+      shippingFee: shippingFee(),
+      total: cartTotal(),
+      status: 'Pending',
+      address: {
+        name: $("#co-name").value.trim(),
+        phone: $("#co-phone").value.trim(),
+        address: $("#co-address").value.trim()
+      },
+      payment: {
+        method: 'Bank Transfer Manual',
+        bank: { name: BANK.name, account: BANK.account, accountName: BANK.accountName },
+        receipt_url: ''
+      }
     };
     try {
-      const stockUpdates = cart.map(it => supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id));
+      const receiptFile = $("#co-receipt")?.files?.[0];
+      if (receiptFile) {
+        const ext = (receiptFile.name.split('.').pop()||'jpg').toLowerCase();
+        const path = `receipts/${order.id}.${ext}`;
+        const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, receiptFile, { upsert: true });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+        order.payment.receipt_url = pub.publicUrl;
+      }
+
+      const stockUpdates = cart.map(it =>
+        supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id)
+      );
       await Promise.all(stockUpdates);
+
       await createOrder(order);
+
       cart = []; localStorage.setItem(KEYS.CART, JSON.stringify(cart));
-      coupon=null; localStorage.removeItem(KEYS.COUPON);
+      coupon = null; localStorage.removeItem(KEYS.COUPON);
       renderCart(); togglePanel('checkout-modal', false);
-      showToast('Pesanan disahkan!'); showReceipt(order);
+      showToast('Pesanan dihantar! Kami akan semak pembayaran anda.');
+      showReceipt(order);
       await loadPage();
-    } catch(err) { showToast(err.message||'Ralat semasa membuat pesanan','error'); }
+    } catch(err) {
+      showToast(err.message||'Ralat semasa menghantar pesanan','error');
+    }
   });
 
-  $("#add-product-btn")?.addEventListener('click', ()=> openProductForm());
-  $("#cancel-product-form-btn")?.addEventListener('click', ()=> togglePanel('product-form-modal', false));
-
-  $("#product-form")?.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const rec = {
-      id: $("#product-id").value || null,
-      name: $("#product-name").value.trim(),
-      price: parseFloat($("#product-price").value),
-      stock: parseInt($("#product-stock").value,10),
-      category: $("#product-category").value.trim(),
-      image_url: $("#product-image").value.trim(),
-      description: $("#product-description").value.trim()
-    };
-    const files = $("#product-images")?.files || [];
-    try {
-      await createOrUpdateProduct(rec, files);
-      togglePanel('product-form-modal', false);
-      showToast('Produk disimpan!');
-      await loadPage(); await renderAdmin();
-    } catch(err) { showToast(err.message||'Gagal simpan', 'error'); }
-  });
-
-  // remove existing image chip
-  document.body.addEventListener('click', (e)=>{
-    const rm = e.target.closest('button[data-remove-idx]');
-    if (!rm) return;
-    const idx = Number(rm.dataset.removeIdx);
-    try {
-      const arr = JSON.parse($('#product-existing-images').value||'[]');
-      arr.splice(idx,1);
-      $('#product-existing-images').value = JSON.stringify(arr);
-      rm.parentElement.remove();
-    } catch {}
-  });
-
+  // Update order status (admin)
   document.body.addEventListener('change', async (e)=>{
     if (e.target.classList.contains('order-status')){
       const id = e.target.getAttribute('data-order');
@@ -749,29 +649,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 /* ====== Form helpers & receipt ====== */
 function openProductForm(id=null){
   const f = $("#product-form"); if (!f) return;
-  f.reset(); $("#product-id").value=""; $("#product-images").value=null;
+  f.reset(); $("#product-id").value=""; $("#product-image-file").value="";
   const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
   if (p) {
     $("#product-form-title").textContent='Kemas Kini Produk';
     $("#product-id").value = p.id; $("#product-name").value = p.name; $("#product-price").value = p.price;
     $("#product-stock").value = p.stock; $("#product-category").value = p.category||'';
     $("#product-image").value = p.image_url||''; $("#product-description").value = p.description||'';
-
-    $("#product-existing-images").value = JSON.stringify(Array.isArray(p.images)?p.images:[]);
-    const wrap = $('#product-images-preview');
-    if (wrap) {
-      const imgs = Array.isArray(p.images)?p.images:[p.image_url].filter(Boolean);
-      wrap.innerHTML = imgs.map((u,idx)=>`
-        <span class="inline-flex items-center gap-2 px-2 py-1 rounded-full border bg-white">
-          <img src="${u}" class="w-8 h-8 object-cover rounded">
-          <button type="button" data-remove-idx="${idx}" class="text-red-600 text-xs">padam</button>
-        </span>
-      `).join('');
-    }
   } else {
     $("#product-form-title").textContent='Tambah Produk Baharu';
-    $("#product-existing-images").value = "[]";
-    $('#product-images-preview')?.replaceChildren();
   }
   togglePanel('product-form-modal', true);
 }
@@ -783,7 +669,9 @@ function showReceipt(order){
         <h3 class="text-xl font-extrabold mb-2 text-center">Resit Pesanan</h3>
         <p class="text-center text-sm text-gray-500">#${order.id.slice(-6)} &bull; ${new Date(order.date).toLocaleString()}</p>
         <div class="border-t my-4"></div>
-        <div class="text-sm space-y-1">${(order.items||[]).map(i=>`<div class="flex justify-between"><span>${i.qty}x ${i.name}</span><span>${money(i.price*i.qty)}</span></div>`).join('')}</div>
+        <div class="text-sm space-y-1">
+          ${(order.items||[]).map(i=>`<div class="flex justify-between"><span>${i.qty}x ${i.name}</span><span>${money(i.price*i.qty)}</span></div>`).join('')}
+        </div>
         <div class="border-t my-4"></div>
         <div class="mt-3 text-sm space-y-1">
           <div class="flex justify-between"><span>Subtotal</span><span>${money(order.subtotal)}</span></div>
@@ -792,7 +680,8 @@ function showReceipt(order){
           <div class="flex justify-between font-bold text-lg pt-2 mt-2 border-t"><span>Jumlah</span><span>${money(order.total)}</span></div>
         </div>
         <div class="border-t my-4"></div>
-        <p class="text-xs text-gray-500">Alamat: ${order.address?.name}, ${order.address?.address}</p>
+        <p class="text-xs text-gray-500">Alamat: ${order.address?.name||''}, ${order.address?.address||''}</p>
+        ${order.payment?.receipt_url ? `<a href="${order.payment.receipt_url}" target="_blank" class="text-xs text-cyan-600 underline">Lihat resit</a>` : ''}
         <div class="flex justify-end pt-4"><button class="btn-primary" id="receipt-close">Tutup</button></div>
       </div>
     </div>`;
