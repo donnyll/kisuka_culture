@@ -1,17 +1,18 @@
-/* ====== CONFIG: Supabase ====== */
+/* ====== CONFIG: Supabase & Bank ====== */
 const SUPABASE_URL = "https://wzkkaiajzjiswdupkgna.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind6a2thaWFqemppc3dkdXBrZ25hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxMDI5MDUsImV4cCI6MjA3NTY3ODkwNX0.U1PxAxHJd6sAdQkHXZiTWYN0lbb33xJPRDK2ALjzO-Q";
 const STORAGE_BUCKET = "kisuka_culture";
-
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ====== Bank Settings (edit ikut akaun anda) ====== */
+// Tetapan akaun bank untuk dipapar pada modal
 const BANK = {
-  name: 'Maybank',
-  account: '123456789012',
-  accountName: 'Kisuka Culture',
-  whatsapp: '60123456789' // tanpa +; contoh 60123456789
+  name: "Maybank",
+  account: "1234 5678 9012",
+  accountName: "UNMEKI ENTERPRISE"
 };
+
+// WhatsApp (ubah ke nombor anda)
+const WHATSAPP_NUMBER = "60123456789";
 
 /* ====== Helpers ====== */
 const $  = (s, r=document)=>r.querySelector(s);
@@ -23,8 +24,7 @@ function showToast(msg, type='success'){
   const c = $("#toast-container"); if (!c) return;
   const el = document.createElement('div');
   el.className = `toast-notification ${type==='success'?'bg-gray-800':'bg-red-600'} text-white text-sm font-semibold py-2 px-4 rounded-full shadow-lg`;
-  el.textContent = msg;
-  c.innerHTML = ""; c.appendChild(el);
+  el.textContent = msg; c.innerHTML = ""; c.appendChild(el);
 }
 
 /* ====== State ====== */
@@ -34,6 +34,7 @@ let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let coupon = JSON.parse(localStorage.getItem(KEYS.COUPON) || "null");
 let shipping = localStorage.getItem(KEYS.SHIPPING) || "standard";
 
+// UI state
 let ALL_PRODUCTS = [];
 let TOTAL_PRODUCTS = 0;
 let CURRENT_FILTER = { category:'Semua', term:'', sort:'popular' };
@@ -46,7 +47,6 @@ async function applyAuthGate(){
   const links = $$('[data-view="admin"]');
   const isAdmin = !!user && user.user_metadata?.role === "admin";
   links.forEach(a => a.style.display = isAdmin ? "" : "none");
-
   const adminView = $("#admin-view");
   const isOnAdmin = adminView && adminView.classList.contains("active");
   if (!isAdmin && isOnAdmin){
@@ -55,29 +55,17 @@ async function applyAuthGate(){
   }
   return isAdmin;
 }
-
 async function renderAuthArea(){
   const { data: { user } } = await supabase.auth.getUser();
-  const area = $("#auth-area");
-  if (!area) return;
-
+  const area = $("#auth-area"); if (!area) return;
   if (user && user.user_metadata?.role === "admin"){
-    area.innerHTML = `
-      <span class="text-sm text-gray-600 hidden md:inline">Log masuk sebagai <strong>${user.email}</strong></span>
-      <button id="logout-btn" class="btn-light !py-2 !px-3">Log Keluar</button>`;
+    area.innerHTML = `<span class="text-sm text-gray-600 hidden md:inline">Log masuk sebagai <strong>${user.email}</strong></span><button id="logout-btn" class="btn-light !py-2 !px-3">Log Keluar</button>`;
     $("#logout-btn")?.addEventListener("click", async ()=>{
-      await supabase.auth.signOut();
-      await applyAuthGate();
-      showToast("Log keluar");
-      switchView("home");
+      await supabase.auth.signOut(); await applyAuthGate();
+      showToast("Log keluar"); switchView("home");
     });
   } else {
-    area.innerHTML = `
-      <form id="login-form" class="flex gap-2">
-        <input type="email" id="login-email" placeholder="admin@email.com" class="border rounded-md p-2 text-sm" required>
-        <input type="password" id="login-pass" placeholder="kata laluan" class="border rounded-md p-2 text-sm" required>
-        <button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button>
-      </form>`;
+    area.innerHTML = `<form id="login-form" class="flex gap-2"><input type="email" id="login-email" placeholder="admin@email.com" class="border rounded-md p-2 text-sm" required><input type="password" id="login-pass" placeholder="kata laluan" class="border rounded-md p-2 text-sm" required><button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button></form>`;
     iconify();
     $("#login-form")?.addEventListener("submit", async (e)=>{
       e.preventDefault();
@@ -85,15 +73,12 @@ async function renderAuthArea(){
       const password = $("#login-pass").value;
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return showToast(error.message, 'error');
-      showToast("Berjaya log masuk");
-      await applyAuthGate();
-      renderAuthArea();
-      await renderAdmin();
+      showToast("Berjaya log masuk"); await applyAuthGate(); renderAuthArea(); await renderAdmin();
     });
   }
 }
 
-/* ====== SERVER DATA ====== */
+/* ====== Server: products & orders ====== */
 async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
   let query = supabase.from('products').select('*', { count: 'exact' });
   if (ids) {
@@ -134,7 +119,7 @@ async function createOrUpdateProduct(record, file){
     name: record.name, description: record.description, price: Number(record.price),
     category: record.category, stock: Number(record.stock), image_url
   };
-  const { error } = record.id
+  const { error } = record.id 
     ? await supabase.from('products').update(payload).eq('id', record.id)
     : await supabase.from('products').insert(payload);
   if (error) throw error;
@@ -148,11 +133,10 @@ async function createOrder(order){
   if (error) throw error;
 }
 
-/* ====== RENDER ====== */
+/* ====== Rendering (ringkas) ====== */
 const productBadge = p => {
-  const b=[];
-  if (p.stock === 0) b.push('<span class="text-[10px] bg-gray-800 text-white px-2 py-0.5 rounded-full font-semibold">HABIS</span>');
-  else if (p.stock > 0 && p.stock < 5) b.push('<span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-semibold">STOK TERHAD</span>');
+  const b=[]; if (p.stock===0) b.push('<span class="text-[10px] bg-gray-800 text-white px-2 py-0.5 rounded-full font-semibold">HABIS</span>');
+  else if (p.stock>0 && p.stock<5) b.push('<span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-semibold">STOK TERHAD</span>');
   return b.join(' ');
 };
 const productCard = p => {
@@ -160,8 +144,8 @@ const productCard = p => {
   return `
   <div class="product-card bg-white rounded-lg border border-gray-200 overflow-hidden group relative flex flex-col" data-id="${p.id}" data-action="view-detail">
     <div class="absolute top-2 right-2 z-10 flex flex-col gap-2">
-      <button data-action="toggle-wishlist" data-id="${p.id}" class="bg-white/80 rounded-full p-2 shadow-md hover:bg-white transition-transform hover:scale-110">
-        <i data-lucide="heart" class="w-4 h-4 transition-all ${isWishlisted ? 'text-red-500 fill-red-500' : 'text-gray-600'}"></i>
+      <button data-action="toggle-wishlist" data-id="${p.id}" class="bg-white/80 rounded-full p-2 shadow-md hover:bg-white">
+        <i data-lucide="heart" class="w-4 h-4 ${isWishlisted ? 'text-red-500 fill-red-500' : 'text-gray-600'}"></i>
       </button>
     </div>
     <div class="relative cursor-pointer">
@@ -175,7 +159,7 @@ const productCard = p => {
       </div>
       <p class="text-base font-extrabold text-gray-900 mt-1 cursor-pointer">${money(p.price)}</p>
       <div class="flex gap-2 mt-auto pt-4 border-t border-gray-100">
-        <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">Tambah ke Troli</button>
+        <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-300">Tambah ke Troli</button>
       </div>
     </div>
   </div>`;
@@ -186,15 +170,10 @@ const skeletonCard = () => `
     <div class="p-4 space-y-3">
       <div class="text w-3/4"></div>
       <div class="text w-1/2"></div>
-      <div class="pt-4 mt-auto">
-        <div class="text w-full h-9"></div>
-      </div>
+      <div class="pt-4 mt-auto"><div class="text w-full h-9"></div></div>
     </div>
   </div>`;
-const renderSkeletonGrid = (grid) => {
-  if(!grid) return;
-  grid.innerHTML = Array.from({ length: pageSize }).map(skeletonCard).join('');
-};
+const renderSkeletonGrid = (grid) => { if(!grid) return; grid.innerHTML = Array.from({ length: pageSize }).map(skeletonCard).join(''); };
 function renderGrid(products, gridElement, emptyMsg) {
   if (!gridElement) return;
   gridElement.innerHTML = products.length
@@ -205,20 +184,13 @@ function renderGrid(products, gridElement, emptyMsg) {
 function renderCategories(){
   const wrap = $("#category-filters"); if (!wrap) return;
   const cats = ['Semua', ...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean).sort())];
-  wrap.innerHTML = cats.map(c=> `
-    <button data-category="${c}"
-      class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white text-gray-700 border'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200">
-      ${c}
-    </button>`).join('');
+  wrap.innerHTML = cats.map(c=> `<button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white text-gray-700 border'} px-4 py-2 rounded-full text-sm font-semibold">${c}</button>`).join('');
 }
 function renderPagination(){
   const box = $("#pagination"); if (!box) return;
   if (TOTAL_PRODUCTS <= pageSize) { box.innerHTML = ''; return; }
-  const totalPages = Math.ceil(TOTAL_PRODUCTS / pageSize);
-  let html = "";
-  for (let i=1; i<=totalPages; i++){
-    html += `<button class="px-3 py-1 rounded-md text-sm ${i===currentPage?'bg-cyan-600 text-white':'bg-white border hover:bg-gray-100'}" data-page="${i}">${i}</button>`;
-  }
+  const totalPages = Math.ceil(TOTAL_PRODUCTS / pageSize); let html="";
+  for (let i=1; i<=totalPages; i++) html += `<button class="px-3 py-1 rounded-md text-sm ${i===currentPage?'bg-cyan-600 text-white':'bg-white border hover:bg-gray-100'}" data-page="${i}">${i}</button>`;
   box.innerHTML = html;
 }
 async function renderProductDetail(id){
@@ -246,25 +218,17 @@ async function renderProductDetail(id){
           ${p.stock > 0 && p.stock < 10 ? `<p class="text-red-600 font-semibold text-sm mt-4">${p.stock} unit sahaja lagi!</p>`:''}
           ${p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">HABIS DIJUAL</p>`:''}
           <div class="flex gap-3 mt-6">
-            <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 transition-colors">Tambah ke Troli</button>
-            <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border flex items-center gap-2 hover:bg-gray-50">
-              <i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600'}"></i> Wishlist
-            </button>
+            <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400">Tambah ke Troli</button>
+            <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border flex items-center gap-2 hover:bg-gray-50"><i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600'}"></i> Wishlist</button>
           </div>
         </div>
       </div>
-    </section>`;
-  iconify();
+    </section>`; iconify();
 }
 async function renderWishlist() {
   const grid = $("#wishlist-grid"); if (!grid) return;
-  if (wishlist.length === 0) {
-    grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>';
-    return;
-  }
-  renderSkeletonGrid(grid);
-  const { rows } = await fetchProductsServer({ ids: wishlist });
-  renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
+  if (wishlist.length === 0) { grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>'; return; }
+  renderSkeletonGrid(grid); const { rows } = await fetchProductsServer({ ids: wishlist }); renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
 }
 
 /* ====== CART ====== */
@@ -289,34 +253,20 @@ function renderCart(){
               <button data-action="increment" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">+</button>
             </div>
           </div>
-          <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50">
-            <i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i>
-          </button>
+          <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
         </div>`).join('');
     }
   }
   const cartItems = cart.reduce((s,i)=>s+i.quantity,0);
-  $("#cart-count").textContent = cartItems;
-  $("#mobile-cart-count").textContent = cartItems;
-  $("#wishlist-count").textContent = wishlist.length;
-
-  const subEl=$("#cart-subtotal"); if (subEl) subEl.textContent = money(cartSubtotal());
-  const totEl=$("#cart-total");    if (totEl) totEl.textContent = money(cartTotal());
-  localStorage.setItem(KEYS.CART, JSON.stringify(cart));
-  iconify();
+  $("#cart-count").textContent = cartItems; $("#mobile-cart-count").textContent = cartItems; $("#wishlist-count").textContent = wishlist.length;
+  $("#cart-subtotal")?.textContent = money(cartSubtotal()); $("#cart-total")?.textContent = money(cartTotal());
+  localStorage.setItem(KEYS.CART, JSON.stringify(cart)); iconify();
 }
 function addToCart(p){
   const it = cart.find(x=>String(x.id)===String(p.id));
-  if (it){
-    if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); }
-    else return showToast(`Stok ${p.name} tidak mencukupi!`,'error');
-  } else {
-    if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 });
-    else return showToast(`Stok ${p.name} habis!`, 'error');
-  }
-  renderCart();
-  const cartBtn = $("#cart-btn");
-  if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
+  if (it){ if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); } else return showToast(`Stok ${p.name} tidak mencukupi!`,'error'); }
+  else { if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 }); else return showToast(`Stok ${p.name} habis!`, 'error'); }
+  renderCart(); const cartBtn = $("#cart-btn"); if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
 }
 const removeFromCart = id => { cart = cart.filter(i=>String(i.id)!==String(id)); renderCart(); };
 async function updateQuantity(id, d){
@@ -330,19 +280,16 @@ async function updateQuantity(id, d){
 /* ====== PANELS & NAV ====== */
 function togglePanel(id, forceOpen=null){
   const el = document.getElementById(id);
-  const overlay = $("#overlay");
-  if (!el || !overlay) return;
+  const overlay = $("#overlay"); if (!el || !overlay) return;
   const willOpen = forceOpen !== null ? forceOpen : el.style.transform.includes('100');
   overlay.classList.toggle('hidden', !willOpen);
   if (willOpen) {
     if (id.endsWith('-modal')) { el.classList.add('show'); el.classList.remove('hidden'); }
-    else { el.style.transform = 'translateX(0%)'; if (id === 'search-modal') el.style.transform = 'translateY(0%)'; }
-  } else {
-    closeAllPanels();
-  }
+    else { el.style.transform = id==='search-modal' ? 'translateY(0%)' : 'translateX(0%)'; }
+  } else { closeAllPanels(); }
 }
 function closeAllPanels(){
-  const overlay = $("#overlay"); if (overlay) overlay.classList.add('hidden');
+  $("#overlay")?.classList.add('hidden');
   $("#mobile-menu").style.transform='translateX(-100%)';
   $("#cart-panel").style.transform='translateX(100%)';
   $("#search-modal").style.transform='translateY(-100%)';
@@ -352,10 +299,9 @@ async function switchView(view){
   $$('.view').forEach(v=>v.classList.remove('active'));
   const tgt = $(`#${view}-view`);
   if (tgt) {
-    tgt.classList.add('active');
-    window.scrollTo({ top:0, behavior:'smooth' });
+    tgt.classList.add('active'); window.scrollTo({ top:0, behavior:'smooth' });
     if (view === 'admin') { await applyAuthGate(); await renderAuthArea(); await renderAdmin(); }
-    if (['home', 'all-products'].includes(view)) { await loadPage(); }
+    if (['home','all-products'].includes(view)) { await loadPage(); }
     if (view === 'wishlist') { await renderWishlist(); }
   }
 }
@@ -363,42 +309,32 @@ async function switchView(view){
 /* ====== ADMIN ====== */
 async function renderAdmin(){
   const [orders, {rows: adminProducts, count}] = await Promise.all([
-    fetchOrders(),
-    fetchProductsServer({ page: 1, pageSize: 100 })
+    fetchOrders(), fetchProductsServer({ page: 1, pageSize: 100 })
   ]);
   TOTAL_PRODUCTS = count;
-
   $("#admin-total-products").textContent = TOTAL_PRODUCTS;
   $("#admin-total-orders").textContent = orders.length;
   $("#admin-total-sales").textContent = money(orders.reduce((s,o)=> s + Number(o.total||0), 0));
-
   const productList = $("#admin-product-list");
   if (productList) {
     productList.innerHTML = `
       <table class="min-w-full bg-white rounded-lg overflow-hidden border">
-        <thead class="bg-gray-50">
-          <tr class="text-left text-xs text-gray-500 uppercase">
-            <th class="py-2 px-4">Nama</th>
-            <th class="py-2 px-4 hidden md:table-cell">Kategori</th>
-            <th class="py-2 px-4 hidden md:table-cell">Stok</th>
-            <th class="py-2 px-4">Harga</th>
-            <th class="py-2 px-4">Tindakan</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${adminProducts.map(p => `
-            <tr class="text-sm text-gray-700 border-t">
-              <td class="py-2 px-4 font-semibold">${p.name}</td>
-              <td class="py-2 px-4 hidden md:table-cell">${p.category||'-'}</td>
-              <td class="py-2 px-4 hidden md:table-cell">${p.stock}</td>
-              <td class="py-2 px-4">${money(p.price)}</td>
-              <td class="py-2 px-4">
-                <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-2">Edit</button>
-                <button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline">Padam</button>
-              </td>
-            </tr>`).join('')}
-        </tbody>
-      </table>`;
+        <thead class="bg-gray-50"><tr class="text-left text-xs text-gray-500 uppercase">
+          <th class="py-2 px-4">Nama</th><th class="py-2 px-4 hidden md:table-cell">Kategori</th>
+          <th class="py-2 px-4 hidden md:table-cell">Stok</th><th class="py-2 px-4">Harga</th><th class="py-2 px-4">Tindakan</th>
+        </tr></thead>
+        <tbody>${adminProducts.map(p => `
+          <tr class="text-sm text-gray-700 border-t">
+            <td class="py-2 px-4 font-semibold">${p.name}</td>
+            <td class="py-2 px-4 hidden md:table-cell">${p.category||'-'}</td>
+            <td class="py-2 px-4 hidden md:table-cell">${p.stock}</td>
+            <td class="py-2 px-4">${money(p.price)}</td>
+            <td class="py-2 px-4">
+              <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-2">Edit</button>
+              <button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline">Padam</button>
+            </td>
+          </tr>`).join('')}
+        </tbody></table>`;
   }
   const orderList = $("#admin-order-list");
   if (orderList) {
@@ -410,7 +346,7 @@ async function renderAdmin(){
             <h4 class="font-bold">Pesanan #${o.id.slice(-6)}</h4>
             <span class="text-sm text-gray-600">${new Date(o.date).toLocaleString()}</span>
           </div>
-          <p class="text-sm mt-1">Kepada: ${o.address?.name||'-'}</p>
+          <p class="text-sm mt-1">Kepada: ${o.address?.name || '-'}</p>
           <ul class="text-sm mt-2 list-disc pl-6">${(o.items||[]).map(i=>`<li>${i.qty}x ${i.name} — ${money(i.price*i.qty)}</li>`).join('')}</ul>
           <div class="flex items-center justify-between mt-2 pt-2 border-t">
             <p class="font-bold">Jumlah: ${money(o.total)}</p>
@@ -426,30 +362,19 @@ async function renderAdmin(){
   }
 }
 
-/* ====== LOAD PAGE ====== */
+/* ====== PAGE LOAD ====== */
 async function loadPage(){
-  const grid = $("#all-product-grid");
-  renderSkeletonGrid(grid);
-  const { rows, count } = await fetchProductsServer({
-    page: currentPage,
-    term: CURRENT_FILTER.term,
-    category: CURRENT_FILTER.category,
-    sort: CURRENT_FILTER.sort
-  });
-  ALL_PRODUCTS = rows;
-  TOTAL_PRODUCTS = count;
-  renderCategories();
-  renderGrid(ALL_PRODUCTS, grid, 'Tiada produk ditemui.');
+  const grid = $("#all-product-grid"); renderSkeletonGrid(grid);
+  const { rows, count } = await fetchProductsServer({ page: currentPage, term: CURRENT_FILTER.term, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
+  ALL_PRODUCTS = rows; TOTAL_PRODUCTS = count;
+  renderCategories(); renderGrid(ALL_PRODUCTS, grid, 'Tiada produk ditemui.');
   renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'Tiada produk pilihan.');
   renderPagination();
 }
 
 /* ====== EVENTS ====== */
 document.addEventListener('DOMContentLoaded', async ()=>{
-  iconify();
-  await applyAuthGate();
-  await loadPage();
-  renderCart();
+  iconify(); await applyAuthGate(); await loadPage(); renderCart();
 
   document.body.addEventListener('click', async (e)=>{
     const nav = e.target.closest('.nav-link');
@@ -499,29 +424,89 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
   $("#sort-select")?.addEventListener('change', async (e)=>{ currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#pagination")?.addEventListener('click', async (e)=>{
-    const b = e.target.closest('button[data-page]');
-    if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); }
+    const b = e.target.closest('button[data-page]'); if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); }
   });
 
-  // Open checkout & fill bank labels
+  // === Checkout open: isi label bank & buka modal (SAFE) ===
   $("#checkout-btn")?.addEventListener('click', ()=>{
     if (cart.length===0) return showToast('Troli anda kosong!', 'error');
-    $('#bank-name').textContent = BANK.name;
-    $('#bank-account').textContent = BANK.account;
-    $('#bank-account-name').textContent = BANK.accountName;
+    const n  = $('#bank-name'); const a  = $('#bank-account'); const an = $('#bank-account-name');
+    if (n)  n.textContent  = BANK.name;
+    if (a)  a.textContent  = BANK.account;
+    if (an) an.textContent = BANK.accountName;
     togglePanel('checkout-modal', true);
   });
 
   $("#apply-coupon-btn")?.addEventListener('click', ()=>{
     const input = $("#coupon-input"); if (!input) return;
-    const code = input.value.trim().toUpperCase();
-    let applied=null;
+    const code = input.value.trim().toUpperCase(); let applied=null;
     if (code==='SAVE10') applied={code,type:'percent',amount:10};
     if (code==='FREESHIP'){ if (cartSubtotal()>=80) applied={code,type:'freeship',amount:0}; else return showToast('FREESHIP perlukan min RM80','error'); }
     if (!applied) return showToast('Kupon tidak sah','error');
     coupon=applied; localStorage.setItem(KEYS.COUPON, JSON.stringify(coupon)); renderCart(); showToast(`Kupon ${code} digunakan`);
   });
   $("#shipping-method")?.addEventListener('change', e=>{ shipping=e.target.value; localStorage.setItem(KEYS.SHIPPING, shipping); renderCart(); });
+
+  // WhatsApp redirect
+  $("#whatsapp-btn")?.addEventListener('click', ()=>{
+    const items = cart.map(i=>`${i.qty || i.quantity}x ${i.name}`).join(', ');
+    const total = money(cartTotal());
+    const text  = `Hai, saya ingin buat pesanan: ${items}. Jumlah: ${total}.`;
+    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`, '_blank');
+  });
+
+  // Submit checkout (upload resit → create order)
+  $("#checkout-form")?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    if (cart.length===0) return showToast('Troli kosong', 'error');
+
+    // Upload resit jika ada
+    let receiptUrl = "";
+    const file = $("#co-receipt")?.files?.[0];
+    if (file){
+      try{
+        const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+        const path = `receipts/${uid()}.${ext}`;
+        const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:true });
+        if (error) throw error;
+        const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+        receiptUrl = pub.publicUrl || "";
+      }catch(err){ showToast('Gagal muat naik resit (akan teruskan tanpa resit)', 'error'); }
+    }
+
+    const order = {
+      id: uid().toUpperCase(),
+      date: new Date().toISOString(),
+      items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
+      subtotal: cartSubtotal(),
+      shipping, shippingFee: shippingFee(),
+      total: cartTotal(),
+      status: 'Pending',
+      address: {
+        name: $("#co-name").value.trim(),
+        phone: $("#co-phone").value.trim(),
+        address: $("#co-address").value.trim(),
+      },
+      bank: BANK,
+      receipt_url: receiptUrl
+    };
+
+    try {
+      // tolak stok
+      const stockUpdates = cart.map(it => supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id));
+      await Promise.all(stockUpdates);
+      // simpan pesanan
+      await createOrder(order);
+      // reset troli
+      cart = []; localStorage.setItem(KEYS.CART, JSON.stringify(cart));
+      coupon=null; localStorage.removeItem(KEYS.COUPON);
+      renderCart(); togglePanel('checkout-modal', false);
+      showToast('Pesanan disahkan!');
+      await loadPage();
+    } catch(err) {
+      showToast(err.message||'Ralat semasa membuat pesanan','error');
+    }
+  });
 
   $("#admin-tabs")?.addEventListener('click', e => {
     const btn = e.target.closest('.admin-tab'); if (!btn) return;
@@ -539,8 +524,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url;
     a.download = `kisuka_culture_products_${new Date().toISOString().split('T')[0]}.json`;
-    a.click(); URL.revokeObjectURL(url);
-    showToast('Produk dieksport!');
+    a.click(); URL.revokeObjectURL(url); showToast('Produk dieksport!');
   });
 
   $('#import-json')?.addEventListener('change', e => {
@@ -553,89 +537,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         showToast(`Mengimport ${products.length} produk...`);
         const { error } = await supabase.from('products').upsert(products, { onConflict: 'name' });
         if (error) throw error;
-        showToast('Produk berjaya diimport!', 'success');
-        await loadPage(); await renderAdmin();
+        showToast('Produk berjaya diimport!', 'success'); await loadPage(); await renderAdmin();
       } catch(err) { showToast(err.message || 'Gagal mengimport JSON.', 'error'); }
     };
     reader.readAsText(file);
   });
 
-  // WhatsApp redirect (prefill message)
-  $("#whatsapp-btn")?.addEventListener('click', ()=>{
-    if (cart.length === 0) { showToast('Troli anda kosong!', 'error'); return; }
-    const name  = ($("#co-name")?.value || '').trim();
-    const phone = ($("#co-phone")?.value || '').trim();
-    const addr  = ($("#co-address")?.value || '').trim();
-
-    const lines = [];
-    lines.push('*Pesanan Baru (Manual Transfer)*', '');
-    cart.forEach(i => lines.push(`• ${i.quantity} x ${i.name} – RM${(i.price*i.quantity).toFixed(2)}`));
-    lines.push('', `Subtotal: RM${cartSubtotal().toFixed(2)}`);
-    lines.push(`Penghantaran: ${shipping==='express'?'Ekspres (RM15)':'Standard (RM8)'} -> RM${shippingFee().toFixed(2)}`);
-    lines.push(`Jumlah: RM${cartTotal().toFixed(2)}`, '');
-    if (name)  lines.push(`Nama: ${name}`);
-    if (phone) lines.push(`Telefon: ${phone}`);
-    if (addr)  lines.push(`Alamat: ${addr}`, '');
-    lines.push(`Bank: ${BANK.name}`, `No Akaun: ${BANK.account}`, `Nama Akaun: ${BANK.accountName}`);
-
-    const text = encodeURIComponent(lines.join('\n'));
-    const url  = `https://wa.me/${BANK.whatsapp}?text=${text}`;
-    window.open(url, '_blank');
-  });
-
-  // Submit checkout (upload receipt + save order)
-  $("#checkout-form")?.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const order = {
-      id: uid().toUpperCase(),
-      date: new Date().toISOString(),
-      items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
-      subtotal: cartSubtotal(),
-      shipping,
-      shippingFee: shippingFee(),
-      total: cartTotal(),
-      status: 'Pending',
-      address: {
-        name: $("#co-name").value.trim(),
-        phone: $("#co-phone").value.trim(),
-        address: $("#co-address").value.trim()
-      },
-      payment: {
-        method: 'Bank Transfer Manual',
-        bank: { name: BANK.name, account: BANK.account, accountName: BANK.accountName },
-        receipt_url: ''
-      }
-    };
-    try {
-      const receiptFile = $("#co-receipt")?.files?.[0];
-      if (receiptFile) {
-        const ext = (receiptFile.name.split('.').pop()||'jpg').toLowerCase();
-        const path = `receipts/${order.id}.${ext}`;
-        const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, receiptFile, { upsert: true });
-        if (upErr) throw upErr;
-        const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-        order.payment.receipt_url = pub.publicUrl;
-      }
-
-      const stockUpdates = cart.map(it =>
-        supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id)
-      );
-      await Promise.all(stockUpdates);
-
-      await createOrder(order);
-
-      cart = []; localStorage.setItem(KEYS.CART, JSON.stringify(cart));
-      coupon = null; localStorage.removeItem(KEYS.COUPON);
-      renderCart(); togglePanel('checkout-modal', false);
-      showToast('Pesanan dihantar! Kami akan semak pembayaran anda.');
-      showReceipt(order);
-      await loadPage();
-    } catch(err) {
-      showToast(err.message||'Ralat semasa menghantar pesanan','error');
-    }
-  });
-
-  // Update order status (admin)
   document.body.addEventListener('change', async (e)=>{
     if (e.target.classList.contains('order-status')){
       const id = e.target.getAttribute('data-order');
@@ -644,9 +551,27 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       showToast('Status pesanan dikemaskini');
     }
   });
+
+  $("#add-product-btn")?.addEventListener('click', ()=> openProductForm());
+  $("#cancel-product-form-btn")?.addEventListener('click', ()=> togglePanel('product-form-modal', false));
+  $("#product-form")?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const rec = {
+      id: $("#product-id").value || null,
+      name: $("#product-name").value.trim(),
+      price: parseFloat($("#product-price").value),
+      stock: parseInt($("#product-stock").value,10),
+      category: $("#product-category").value.trim(),
+      image_url: $("#product-image").value.trim(),
+      description: $("#product-description").value.trim()
+    };
+    const file = $("#product-image-file").files[0] || null;
+    try { await createOrUpdateProduct(rec, file); togglePanel('product-form-modal', false); showToast('Produk disimpan!'); await loadPage(); await renderAdmin(); }
+    catch(err) { showToast(err.message||'Gagal simpan', 'error'); }
+  });
 });
 
-/* ====== Form helpers & receipt ====== */
+/* ====== Form helpers ====== */
 function openProductForm(id=null){
   const f = $("#product-form"); if (!f) return;
   f.reset(); $("#product-id").value=""; $("#product-image-file").value="";
@@ -660,31 +585,4 @@ function openProductForm(id=null){
     $("#product-form-title").textContent='Tambah Produk Baharu';
   }
   togglePanel('product-form-modal', true);
-}
-function showReceipt(order){
-  const couponText = coupon ? `${coupon.code} (${coupon.type==='percent'?`-${coupon.amount}%`:'Percuma'})` : 'Tiada';
-  const html = `
-    <div class="modal show" id="receipt-modal">
-      <div class="modal-card max-w-sm">
-        <h3 class="text-xl font-extrabold mb-2 text-center">Resit Pesanan</h3>
-        <p class="text-center text-sm text-gray-500">#${order.id.slice(-6)} &bull; ${new Date(order.date).toLocaleString()}</p>
-        <div class="border-t my-4"></div>
-        <div class="text-sm space-y-1">
-          ${(order.items||[]).map(i=>`<div class="flex justify-between"><span>${i.qty}x ${i.name}</span><span>${money(i.price*i.qty)}</span></div>`).join('')}
-        </div>
-        <div class="border-t my-4"></div>
-        <div class="mt-3 text-sm space-y-1">
-          <div class="flex justify-between"><span>Subtotal</span><span>${money(order.subtotal)}</span></div>
-          <div class="flex justify-between"><span>Kupon</span><span>${couponText}</span></div>
-          <div class="flex justify-between"><span>Penghantaran</span><span>${money(order.shippingFee)}</span></div>
-          <div class="flex justify-between font-bold text-lg pt-2 mt-2 border-t"><span>Jumlah</span><span>${money(order.total)}</span></div>
-        </div>
-        <div class="border-t my-4"></div>
-        <p class="text-xs text-gray-500">Alamat: ${order.address?.name||''}, ${order.address?.address||''}</p>
-        ${order.payment?.receipt_url ? `<a href="${order.payment.receipt_url}" target="_blank" class="text-xs text-cyan-600 underline">Lihat resit</a>` : ''}
-        <div class="flex justify-end pt-4"><button class="btn-primary" id="receipt-close">Tutup</button></div>
-      </div>
-    </div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
-  $("#receipt-close")?.addEventListener('click', ()=> $("#receipt-modal")?.remove());
 }
