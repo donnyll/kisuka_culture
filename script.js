@@ -34,20 +34,24 @@ let CURRENT_FILTER = { category:'Semua', term:'', sort:'popular' };
 let currentPage = 1;
 const pageSize = 8;
 
-/* ====== AUTH GATE ====== */
-async function applyAuthGate(){
+/* ====== AUTH GATE (dikemaskini) ====== */
+async function applyAuthGate(redirectIfDenied = false) {
   const { data: { user } } = await supabase.auth.getUser();
   const links = $$('[data-view="admin"]');
   const isAdmin = !!user && user.user_metadata?.role === "admin";
+
+  // Sembunyikan/unjurkan link Admin pada navbar/menu
   links.forEach(a => a.style.display = isAdmin ? "" : "none");
-  const adminView = $("#admin-view");
-  const isOnAdmin = adminView && adminView.classList.contains("active");
-  if (!isAdmin && isOnAdmin){
-    switchView("home");
+
+  // HANYA redirect jika benar-benar diminta
+  if (!isAdmin && redirectIfDenied) {
+    // jika anda mahu kekalkan toast, biarkan satu baris ini
     showToast("Anda perlu login sebagai admin untuk akses panel ini", "error");
+    switchView("home");
   }
   return isAdmin;
 }
+
 
 async function renderAuthArea(){
   const { data: { user } } = await supabase.auth.getUser();
@@ -330,17 +334,34 @@ function closeAllPanels(){
   $("#search-modal").style.transform='translateY(-100%)';
   $$(".modal").forEach(m => m.classList.remove('show'));
 }
+/* ====== Tukar Paparan (dikemaskini) ====== */
 async function switchView(view){
   $$('.view').forEach(v=>v.classList.remove('active'));
   const tgt = $(`#${view}-view`);
-  if (tgt) {
-    tgt.classList.add('active'); 
-    window.scrollTo({ top:0, behavior:'smooth' });
-    if (view === 'admin') { await applyAuthGate(); await renderAuthArea(); await renderAdmin(); }
-    if (['home', 'all-products'].includes(view)) { await loadPage(); }
-    if (view === 'wishlist') { await renderWishlist(); }
+  if (!tgt) return;
+
+  tgt.classList.add('active');
+  window.scrollTo({ top:0, behavior:'smooth' });
+
+  if (view === 'admin') {
+    // JANGAN redirect di sini; sentiasa render auth area
+    const isAdmin = await applyAuthGate(false);   // false = jangan paksa redirect
+    await renderAuthArea();                       // jika belum login => borang login dipaparkan
+    if (isAdmin) await renderAdmin();             // hanya admin sebenar akan load data admin
+    return;
+  }
+
+  if (['home', 'all-products'].includes(view)) {
+    await loadPage();
+    return;
+  }
+
+  if (view === 'wishlist') {
+    await renderWishlist();
+    return;
   }
 }
+
 
 /* ====== ADMIN ====== */
 async function renderAdmin(){
