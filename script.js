@@ -13,16 +13,6 @@ const $$ = (s, r=document)=>[...r.querySelectorAll(s)];
 const money = n => "RM" + (Number(n)||0).toFixed(2);
 const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
-function getImages(p){
-  try{
-    if (Array.isArray(p.image_urls)) return p.image_urls.filter(Boolean);
-    if (typeof p.image_urls === 'string' && p.image_urls.trim().startsWith('[')) {
-      return JSON.parse(p.image_urls).filter(Boolean);
-    }
-  }catch(e){}
-  return [];
-}
-
 
 function showToast(msg, type='success'){
   const c = $("#toast-container"); if (!c) return;
@@ -39,6 +29,7 @@ let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let coupon = JSON.parse(localStorage.getItem(KEYS.COUPON) || "null");
 let shipping = localStorage.getItem(KEYS.SHIPPING) || "standard";
 let ALL_PRODUCTS = [];
+let ALL_CATEGORIES = [];
 let TOTAL_PRODUCTS = 0;
 let CURRENT_FILTER = { category:'Semua', term:'', sort:'popular' };
 let currentPage = 1;
@@ -81,7 +72,7 @@ async function renderAuthArea(){
       await supabase.auth.signOut(); await applyAuthGate(); showToast("Log keluar"); switchView("home");
     });
   } else {
-    area.innerHTML = `<form id="login-form" class="flex gap-2"><input type="email" id="login-email" placeholder="admin@email.com" class="form-input" required><input type="password" id="login-pass" placeholder="kata laluan" class="form-input" required><button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button></form>`;
+    area.innerHTML = `<form id="login-form" class="flex flex-wrap md:flex-nowrap gap-2"><input type="email" id="login-email" placeholder="admin@email.com" class="form-input" required><input type="password" id="login-pass" placeholder="kata laluan" class="form-input" required><button class="btn-primary !py-2 !px-3 w-full md:w-auto"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button></form>`;
     iconify();
     $("#login-form")?.addEventListener("submit", async (e)=>{
       e.preventDefault();
@@ -94,6 +85,17 @@ async function renderAuthArea(){
 }
 
 /* ====== DATA FETCHING & MUTATION ====== */
+async function fetchSettings() {
+    const { data, error } = await supabase.from('settings').select('key, value');
+    if (error) { console.error("Error fetching settings:", error); return {}; }
+    const settings = data.reduce((acc, { key, value }) => ({ ...acc, [key]: value }), {});
+    
+    // Apply Hero Image
+    if (settings.hero_image_url) {
+        $("#hero-img")?.setAttribute('src', settings.hero_image_url);
+        $("#hero-preview")?.setAttribute('src', settings.hero_image_url);
+    }
+}
 async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
   let query = supabase.from('products').select('*', { count: 'exact' });
   if (ids) { query = query.in('id', ids);
@@ -108,6 +110,12 @@ async function fetchProductsServer({ page=1, term="", category="Semua", sort="po
   const { data, count, error } = await query;
   if (error){ showToast("Gagal memuat produk", 'error'); return { rows:[], count:0 }; }
   return { rows: data||[], count: count||0 };
+}
+async function fetchCategories() {
+    const { data, error } = await supabase.from('categories').select('*').order('name');
+    if (error) { showToast("Gagal memuat kategori", "error"); return []; }
+    ALL_CATEGORIES = data || [];
+    return ALL_CATEGORIES;
 }
 async function fetchOrders(){
   const { data: { user } } = await supabase.auth.getUser();
@@ -156,23 +164,27 @@ const productBadge = p => {
 };
 const productCard = p => {
   const isWishlisted = wishlist.includes(String(p.id));
-  const firstImage = (getImages(p).length > 0) ? getImages(p)[0] : 'https://placehold.co/600x600?text=Produk';
+  const firstImage = (p.image_urls && p.image_urls.length > 0) ? p.image_urls[0] : 'https://placehold.co/600x600?text=Produk';
   return `
-  <div class="product-card bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden group relative flex flex-col" data-id="${p.id}" data-action="view-detail">
-    <div class="absolute top-2 right-2 z-10 flex flex-col gap-2">
-      <button data-action="toggle-wishlist" data-id="${p.id}" class="bg-white/80 dark:bg-gray-900/80 rounded-full p-2 shadow-md hover:bg-white transition-transform hover:scale-110">
-        <i data-lucide="heart" class="w-4 h-4 transition-all ${isWishlisted ? 'text-red-500 fill-red-500' : 'text-gray-600 dark:text-gray-300'}"></i>
-      </button>
-    </div>
-    <div class="relative cursor-pointer"><img src="${firstImage}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
-      ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
+  <div class="product-card bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden group relative flex flex-col">
+    <div data-action="view-detail" data-id="${p.id}" class="cursor-pointer">
+      <div class="absolute top-2 right-2 z-10 flex flex-col gap-2">
+        <button data-action="toggle-wishlist" data-id="${p.id}" class="bg-white/80 dark:bg-gray-900/80 rounded-full p-2 shadow-md hover:bg-white transition-transform hover:scale-110">
+          <i data-lucide="heart" class="w-4 h-4 transition-all ${isWishlisted ? 'text-red-500 fill-red-500' : 'text-gray-600 dark:text-gray-300'} pointer-events-none"></i>
+        </button>
+      </div>
+      <div class="relative"><img src="${firstImage}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
+        ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
+      </div>
     </div>
     <div class="p-4 flex flex-col flex-grow">
-      <div class="flex items-center justify-between gap-2 cursor-pointer mb-1">
-        <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100 truncate flex-grow">${p.name}</h4>
-        ${productBadge(p)}
+      <div data-action="view-detail" data-id="${p.id}" class="cursor-pointer">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100 truncate flex-grow">${p.name}</h4>
+          ${productBadge(p)}
+        </div>
+        <p class="text-base font-extrabold text-gray-900 dark:text-white">${money(p.price)}</p>
       </div>
-      <p class="text-base font-extrabold text-gray-900 dark:text-white cursor-pointer">${money(p.price)}</p>
       <div class="flex gap-2 mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
         <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Tambah ke Troli</button>
       </div>
@@ -189,7 +201,7 @@ function renderGrid(products, gridElement, emptyMsg) {
 }
 function renderCategories(){
   const wrap = $("#category-filters"); if (!wrap) return;
-  const cats = ['Semua', ...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean).sort())];
+  const cats = ['Semua', ...new Set(ALL_CATEGORIES.map(c=>c.name).filter(Boolean).sort())];
   wrap.innerHTML = cats.map(c=> `<button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200 dark:hover:bg-gray-600">${c}</button>`).join('');
 }
 function renderPagination(){
@@ -210,7 +222,7 @@ async function renderProductDetail(id){
     p = data;
   }
   const isWishlisted = wishlist.includes(String(p.id));
-  const firstImage = (getImages(p).length > 0) ? getImages(p)[0] : 'https://placehold.co/600x600?text=Produk';
+  const firstImage = (p.image_urls && p.image_urls.length > 0) ? p.image_urls[0] : 'https://placehold.co/800x800?text=Gambar';
   view.innerHTML = `
     <section class="max-w-5xl mx-auto p-4 md:p-8">
       <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline"><i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali ke Semua Produk</a>
@@ -247,7 +259,7 @@ async function renderWishlist() {
 
 /* ====== CART LOGIC ====== */
 const cartSubtotal = () => cart.reduce((s,i)=> s + i.price*i.quantity, 0);
-const shippingFee = () => (coupon?.type==='freeship') ? 0 : (shipping==='express'?15:8);
+const shippingFee = () => (coupon?.type==='freeship' && cartSubtotal()>=80) ? 0 : (shipping==='express'?15:8);
 const discountAmount = sub => (!coupon || coupon.type!=='percent') ? 0 : sub*(coupon.amount/100);
 const cartTotal = () => Math.max(0, cartSubtotal()-discountAmount(cartSubtotal())) + shippingFee();
 function renderCart(){
@@ -282,13 +294,15 @@ function renderCart(){
 }
 function addToCart(p){
   const it = cart.find(x=>String(x.id)===String(p.id));
-  const firstImage = (getImages(p).length > 0) ? getImages(p)[0] : 'https://placehold.co/600x600?text=Produk';
+  const firstImage = (p.image_urls && p.image_urls.length > 0) ? p.image_urls[0] : null;
   if (it){
     if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); }
     else return showToast(`Stok ${p.name} tidak mencukupi!`,'error');
   } else {
-    if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:firstImage, stock:p.stock, quantity:1 });
-    else return showToast(`Stok ${p.name} habis!`, 'error');
+    if (p.stock > 0) {
+      cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:firstImage, stock:p.stock, quantity:1 });
+      showToast(`${p.name} ditambah!`);
+    } else return showToast(`Stok ${p.name} habis!`, 'error');
   }
   renderCart();
   const cartBtn = $("#cart-btn");
@@ -311,13 +325,16 @@ function togglePanel(id, forceOpen=null){
   const willOpen = forceOpen !== null ? forceOpen : !el.classList.contains('show');
   overlay.classList.toggle('hidden', !willOpen);
   if (willOpen) {
+    document.body.style.overflow = 'hidden';
     if (el.classList.contains('modal')) el.classList.add('show');
     else el.style.transform = 'translate(0, 0)';
   } else {
+    document.body.style.overflow = '';
     closeAllPanels();
   }
 }
 function closeAllPanels(){
+  document.body.style.overflow = '';
   $("#overlay").classList.add('hidden');
   $("#mobile-menu").style.transform='translateX(-100%)';
   $("#cart-panel").style.transform='translateX(100%)';
@@ -337,6 +354,20 @@ async function switchView(view){
 }
 
 /* ====== ADMIN LOGIC ====== */
+async function renderAdminCategories() {
+    await fetchCategories();
+    const list = $("#category-list");
+    if (!list) return;
+    list.innerHTML = ALL_CATEGORIES.map(cat => `
+        <div class="flex items-center justify-between p-3">
+            <span class="text-sm text-gray-800 dark:text-gray-200">${cat.name}</span>
+            <button data-action="delete-category" data-id="${cat.id}" class="btn-icon text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+        </div>
+    `).join('');
+    iconify();
+}
 async function renderAdmin(){
   const [orders, {rows: adminProducts, count}] = await Promise.all([ fetchOrders(), fetchProductsServer({ page: 1, pageSize: 100 }) ]);
   TOTAL_PRODUCTS = count;
@@ -357,15 +388,18 @@ async function renderAdmin(){
       <ul class="text-sm mt-2 list-disc pl-6 text-gray-600 dark:text-gray-400">${(o.items||[]).map(i=>`<li>${i.qty}x ${i.name} — ${money(i.price*i.qty)}</li>`).join('')}</ul>
       <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
         <p class="font-bold text-gray-900 dark:text-white">Jumlah: ${money(o.total)}</p>
-        <div class="flex items-center gap-2"><label class="text-sm text-gray-600 dark:text-gray-400">Status:</label><select data-order="${o.id}" class="order-status form-input !text-xs !py-1 !px-2">${['Pending','Processing','Shipped','Completed','Cancelled'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
+        <div class="flex items-center gap-2"><label class="text-sm text-gray-600 dark:text-gray-400">Status:</label><select data-order-id="${o.id}" class="order-status form-input !text-xs !py-1 !px-2">${['Pending','Processing','Shipped','Completed','Cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
       </div>
     </div>`).join('');
+    
+    await renderAdminCategories();
 }
 
 /* ====== PAGE LOAD & INIT ====== */
 async function loadPage(){
   const grid = $("#all-product-grid");
   renderSkeletonGrid(grid);
+  await fetchCategories();
   const { rows, count } = await fetchProductsServer({ page: currentPage, term: CURRENT_FILTER.term, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
   ALL_PRODUCTS = rows;
   TOTAL_PRODUCTS = count;
@@ -375,32 +409,9 @@ async function loadPage(){
   renderPagination();
 }
 document.addEventListener('DOMContentLoaded', async ()=>{
-  
-function updatePaymentUI(){
-  const method = $("#co-payment")?.value || 'Transfer';
-  const receiptWrap = $("#receipt-upload-area");
-  const bankBox = $("#bank-info");
-  if (method === 'Transfer'){
-    if (receiptWrap) receiptWrap.style.display = '';
-    if ($("#co-receipt")) $("#co-receipt").required = true;
-    if (bankBox){
-      bankBox.innerHTML = `<div class="mt-2 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
-        <p class="font-semibold mb-1">Butiran Bank</p>
-        <p>${BANK.name} — <strong>${BANK.account}</strong></p>
-        <p>Nama Akaun: <strong>${BANK.accountName}</strong></p>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Muat naik resit selepas transfer.</p>
-      </div>`;
-    }
-  } else {
-    if (receiptWrap) receiptWrap.style.display = 'none';
-    if ($("#co-receipt")) $("#co-receipt").required = false;
-    if (bankBox) bankBox.innerHTML = '';
-  }
-}
-
   initTheme();
   iconify();
-  await applyAuthGate();
+  await Promise.all([applyAuthGate(), fetchSettings()]);
   await loadPage();
   renderCart();
 
@@ -408,10 +419,15 @@ function updatePaymentUI(){
   document.body.addEventListener('click', async (e)=>{
     const nav = e.target.closest('.nav-link');
     const actionBtn = e.target.closest('[data-action]');
-    const targetId = e.target.id;
 
-    if (nav?.dataset.view){ e.preventDefault(); switchView(nav.dataset.view); closeAllPanels(); }
-    if (actionBtn?.dataset.action === 'view-detail') { switchView('product-detail'); renderProductDetail(actionBtn.dataset.id); }
+    if (e.target.closest('[data-view]')) { e.preventDefault(); }
+
+    if (nav?.dataset.view){ switchView(nav.dataset.view); closeAllPanels(); }
+    
+    if (actionBtn?.dataset.action === 'view-detail') { 
+        switchView('product-detail'); 
+        renderProductDetail(actionBtn.dataset.id); 
+    }
 
     if (actionBtn){
       const { action, id } = actionBtn.dataset;
@@ -424,9 +440,9 @@ function updatePaymentUI(){
         if (wishlist.includes(id)) wishlist = wishlist.filter(x=>x!==id); else wishlist.push(id);
         localStorage.setItem(KEYS.WISHLIST, JSON.stringify(wishlist));
         showToast('Wishlist dikemaskini'); renderCart();
-        if ($("#all-products-view")?.classList.contains('active')) renderGrid(ALL_PRODUCTS, $('#all-product-grid'));
+        actionBtn.querySelector('i').classList.toggle('text-red-500', wishlist.includes(id));
+        actionBtn.querySelector('i').classList.toggle('fill-red-500', wishlist.includes(id));
         if ($("#wishlist-view")?.classList.contains('active')) await renderWishlist();
-        if ($("#product-detail-view")?.classList.contains('active')) await renderProductDetail(id);
       }
       if (action==='edit-product') openProductForm(id);
       if (action==='delete-product'){
@@ -434,12 +450,20 @@ function updatePaymentUI(){
         try { await deleteProduct(id); showToast('Produk dipadam'); await loadPage(); await renderAdmin(); }
         catch(err) { showToast(err.message||'Gagal padam','error'); }
       }
+      if (action==='delete-category') {
+          if (!confirm("Padam kategori ini?")) return;
+          try {
+              const { error } = await supabase.from('categories').delete().eq('id', id);
+              if (error) throw error;
+              showToast('Kategori dipadam'); await renderAdminCategories();
+          } catch(err) { showToast(err.message || 'Gagal padam', 'error'); }
+      }
     }
 
-    if (e.target.closest('#menu-btn')) togglePanel('mobile-menu');
-    if (e.target.closest('#cart-btn') || e.target.closest('#mobile-cart-btn')) togglePanel('cart-panel');
-    if (e.target.closest('#search-btn')){ togglePanel('search-modal'); $("#search-input")?.focus(); }
-    if (targetId === 'overlay' || e.target.closest('[id^=close-],[id^=cancel-]')) closeAllPanels();
+    if (e.target.closest('#menu-btn')) togglePanel('mobile-menu', true);
+    if (e.target.closest('#cart-btn') || e.target.closest('#mobile-cart-btn')) togglePanel('cart-panel', true);
+    if (e.target.closest('#search-btn')){ togglePanel('search-modal', true); $("#search-input")?.focus(); }
+    if (e.target.id === 'overlay' || e.target.closest('[id^=close-],[id^=cancel-]')) closeAllPanels();
     if (e.target.closest('#theme-btn')) applyTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark');
   });
 
@@ -448,9 +472,8 @@ function updatePaymentUI(){
   $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ currentPage = 1; CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
   $("#sort-select")?.addEventListener('change', async e => { currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#pagination")?.addEventListener('click', async e => { const b = e.target.closest('button[data-page]'); if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); } });
-  $("#checkout-btn")?.addEventListener('click', ()=>{ if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); updatePaymentUI(); });
+  $("#checkout-btn")?.addEventListener('click', ()=>{ if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); });
   $("#shipping-method")?.addEventListener('change', e=>{ shipping=e.target.value; localStorage.setItem(KEYS.SHIPPING, shipping); renderCart(); });
-  $("#co-payment")?.addEventListener('change', updatePaymentUI);
   $("#apply-coupon-btn")?.addEventListener('click', ()=>{
     const code = $("#coupon-input")?.value.trim().toUpperCase(); let applied=null;
     if (code==='SAVE10') applied={code,type:'percent',amount:10};
@@ -464,6 +487,29 @@ function updatePaymentUI(){
     const btn = e.target.closest('.admin-tab'); if (!btn) return;
     $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
     $$('.admin-tab-content').forEach(c => c.classList.add('hidden')); $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
+  });
+  $("#add-product-btn")?.addEventListener("click", () => openProductForm());
+  $("#add-category-btn")?.addEventListener('click', async () => {
+      const name = $("#new-category-name").value.trim();
+      if (!name) return showToast('Nama kategori diperlukan', 'error');
+      const { error } = await supabase.from('categories').insert({ name });
+      if (error) return showToast(error.message, 'error');
+      showToast('Kategori ditambah'); $("#new-category-name").value = '';
+      await renderAdminCategories();
+  });
+  $("#save-hero-btn")?.addEventListener('click', async () => {
+      const file = $("#hero-file")?.files?.[0];
+      if (!file) return showToast('Sila pilih fail gambar', 'error');
+      try {
+          const path = `settings/hero-banner.${file.name.split('.').pop()}`;
+          const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
+          if (uploadError) throw uploadError;
+          const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+          const { error: dbError } = await supabase.from('settings').upsert({ key: 'hero_image_url', value: publicUrl }, { onConflict: 'key' });
+          if (dbError) throw dbError;
+          showToast('Gambar hero disimpan');
+          await fetchSettings();
+      } catch (err) { showToast(err.message, 'error'); }
   });
   $('#export-json')?.addEventListener('click', async () => {
     const { data } = await supabase.from('products').select('name,description,price,category,stock,image_urls');
@@ -481,34 +527,12 @@ function updatePaymentUI(){
   });
   document.body.addEventListener('change', async e => {
     if (e.target.classList.contains('order-status')){
-      const id = e.target.dataset.order; const { error } = await supabase.from('orders').update({ status:e.target.value }).eq('id', id);
+      const id = e.target.dataset.orderId; const { error } = await supabase.from('orders').update({ status:e.target.value }).eq('id', id);
       if (error) return showToast('Gagal kemaskini','error'); showToast('Status pesanan dikemaskini');
     }
   });
 
-  
-  // NEW: live preview for newly selected files in product form
-  $("#product-images-input")?.addEventListener('change', (e) => {
-    const files = e.target.files;
-    const urls = [];
-    for (const f of files) { try { urls.push(URL.createObjectURL(f)); } catch(e){} }
-    if (urls.length) {
-      const preview = $("#product-images-preview");
-      preview.innerHTML = urls.map(u => `<div class="relative group w-20 h-20"><img src="${u}" class="w-full h-full object-cover rounded-md border border-gray-300 dark:border-gray-600"></div>`).join('');
-    }
-  });
-
   /* ====== FORM SUBMISSIONS ====== */
-
-  $("#wa-btn")?.addEventListener('click', () => {
-    if (cart.length===0) return showToast('Troli anda kosong!', 'error');
-    const lines = cart.map(i=>`${i.quantity}x ${i.name} — ${money(i.price*i.quantity)}`).join('%0A');
-    const total = money(cartTotal());
-    const msg = `Order Baru:%0A${lines}%0A%0ATotal: ${total}%0A%0ANama: ${encodeURIComponent($("#co-name")?.value||'') }%0ATelefon: ${encodeURIComponent($("#co-phone")?.value||'') }%0AAlamat: ${encodeURIComponent($("#co-address")?.value||'') }`;
-    const url = `https://wa.me/${BANK.whatsapp}?text=${msg}`;
-    window.open(url, '_blank');
-  });
-
   $("#checkout-form")?.addEventListener('submit', async e => {
     e.preventDefault();
     const order = {
@@ -516,9 +540,7 @@ function updatePaymentUI(){
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
       subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status: 'Pending',
       address: { name: $("#co-name").value, phone: $("#co-phone").value, address: $("#co-address").value },
-      // FIXED: Flattened payment details to match new DB columns
-      payment_method: $("#co-payment").value,
-      receipt_url: ''
+      payment_method: $("#co-payment").value, receipt_url: null
     };
     try {
       const receiptFile = $("#co-receipt")?.files?.[0];
@@ -526,7 +548,8 @@ function updatePaymentUI(){
         const path = `receipts/${order.id}.${receiptFile.name.split('.').pop()}`;
         const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, receiptFile);
         if (upErr) throw upErr;
-        order.receipt_url = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+        const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+        order.receipt_url = publicUrl;
       }
       const stockUpdates = cart.map(it => supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id));
       await Promise.all([...stockUpdates, createOrder(order)]);
@@ -534,15 +557,30 @@ function updatePaymentUI(){
       renderCart(); togglePanel('checkout-modal', false); showToast('Pesanan dihantar!'); showReceipt(order); await loadPage();
     } catch(err) { showToast(err.message||'Ralat semasa menghantar pesanan','error'); }
   });
+
+  $("#product-form")?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const record = {
+          id: $("#product-id").value, name: $("#product-name").value, price: $("#product-price").value,
+          stock: $("#product-stock").value, category: $("#product-category").value, description: $("#product-description").value,
+          image_urls: $("#product-existing-images").value
+      };
+      const files = $("#product-images-input").files;
+      try {
+          await createOrUpdateProduct(record, files);
+          showToast(`Produk ${record.id ? 'dikemaskini' : 'ditambah'}`);
+          closeAllPanels(); await loadPage(); await renderAdmin();
+      } catch (err) { showToast(err.message, 'error'); }
+  });
 });
 
 /* ====== FORM & UI HELPERS ====== */
 function renderImagePreviews(images, container) {
-    container.innerHTML = images.map((url, index) => `
+    container.innerHTML = images.map((url) => `
         <div class="relative group w-20 h-20">
             <img src="${url}" class="w-full h-full object-cover rounded-md border border-gray-300 dark:border-gray-600">
             <button type="button" data-url="${url}" class="absolute top-0 right-0 m-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Remove image">
-                <i data-lucide="x" class="w-3 h-3"></i>
+                <i data-lucide="x" class="w-3 h-3 pointer-events-none"></i>
             </button>
         </div>
     `).join('');
@@ -555,6 +593,11 @@ function openProductForm(id = null) {
     $("#product-existing-images").value = "[]";
     const previewContainer = $("#product-images-preview");
     previewContainer.innerHTML = '';
+    
+    // Populate categories dropdown
+    const categoryInput = $("#product-category");
+    categoryInput.innerHTML = `<option value="">Pilih Kategori</option>` + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
     const p = ALL_PRODUCTS.find(x => String(x.id) === String(id));
     if (p) {
         $("#product-form-title").textContent = 'Kemas Kini Produk';
@@ -569,21 +612,7 @@ function openProductForm(id = null) {
     }
     togglePanel('product-form-modal', true);
 }
-$("#product-form")?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const record = {
-        id: $("#product-id").value, name: $("#product-name").value, price: $("#product-price").value,
-        stock: $("#product-stock").value, category: $("#product-category").value, description: $("#product-description").value,
-        image_urls: $("#product-existing-images").value
-    };
-    const files = $("#product-images-input").files;
-    try {
-        await createOrUpdateProduct(record, files);
-        showToast(`Produk ${record.id ? 'dikemaskini' : 'ditambah'}`);
-        closeAllPanels(); await loadPage(); await renderAdmin();
-    } catch (err) { showToast(err.message, 'error'); }
-});
+
 $('#product-images-preview')?.addEventListener('click', e => {
     const btn = e.target.closest('button');
     if (btn) {
@@ -595,8 +624,9 @@ $('#product-images-preview')?.addEventListener('click', e => {
         btn.parentElement.remove();
     }
 });
+
 function showReceipt(order){
-  const html = `<div class="modal show" id="receipt-modal">
+  const html = `<div class="modal show" id="receipt-modal" style="background-color: rgba(0,0,0,0.7);">
       <div class="modal-card max-w-sm"><h3 class="text-xl font-extrabold mb-2 text-center text-gray-900 dark:text-white">Resit Pesanan</h3>
         <p class="text-center text-sm text-gray-500 dark:text-gray-400">#${order.id.slice(-6)} &bull; ${new Date(order.date).toLocaleString()}</p>
         <div class="border-t border-gray-200 dark:border-gray-700 my-4"></div>
@@ -605,7 +635,7 @@ function showReceipt(order){
         <div class="mt-3 text-sm space-y-1 text-gray-700 dark:text-gray-300"><div class="flex justify-between"><span>Subtotal</span><span>${money(order.subtotal)}</span></div><div class="flex justify-between"><span>Penghantaran</span><span>${money(order.shippingFee)}</span></div><div class="flex justify-between font-bold text-lg pt-2 mt-2 border-t border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white"><span>Jumlah</span><span>${money(order.total)}</span></div></div>
         <div class="border-t border-gray-200 dark:border-gray-700 my-4"></div>
         <p class="text-xs text-gray-500 dark:text-gray-400">Alamat: ${order.address?.name||''}, ${order.address?.address||''}</p>
-        ${order.receipt_url ? `<a href="${order.receipt_url}" target="_blank" class="text-xs text-cyan-600 underline">Lihat resit</a>` : ''}
+        ${order.receipt_url ? `<a href="${order.receipt_url}" target="_blank" class="text-xs text-cyan-600 underline">Lihat resit pembayaran</a>` : ''}
         <div class="flex justify-end pt-4"><button class="btn-primary" onclick="this.closest('#receipt-modal').remove()">Tutup</button></div>
       </div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
