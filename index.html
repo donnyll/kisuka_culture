@@ -5,24 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>kisuka_culture</title>
 
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-
+  <!-- Lucide icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
-
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-
+  <!-- Styles -->
   <link rel="stylesheet" href="./style.css" />
 </head>
 
 <body class="bg-gray-50">
   <div id="app-container" class="bg-white min-h-screen relative">
 
+    <!-- Promo bar -->
     <div class="bg-cyan-600 text-white text-xs font-semibold text-center p-2 shadow-sm">
       KUPON <strong>FREESHIP</strong> UNTUK PENGHANTARAN PERCUMA (MIN. BELANJA RM80)
     </div>
 
+    <!-- Header -->
     <header class="p-4 flex justify-between items-center border-b sticky top-0 bg-white/80 backdrop-blur-md z-20 lg:px-8">
       <div class="flex items-center gap-3">
         <button id="menu-btn" class="p-2 rounded-lg hover:bg-gray-100 md:hidden" aria-label="Buka menu">
@@ -35,7 +38,8 @@
         <a href="#" data-view="home" class="nav-link font-medium text-gray-600 hover:text-cyan-600 transition-colors">Utama</a>
         <a href="#" data-view="all-products" class="nav-link font-medium text-gray-600 hover:text-cyan-600 transition-colors">Semua Produk</a>
         <a href="#" data-view="wishlist" class="nav-link font-medium text-gray-600 hover:text-cyan-600 transition-colors">Wishlist</a>
-        <a href="#" data-view="admin" class="nav-link font-medium text-gray-600 hover:text-cyan-600 transition-colors" style="display: none;">Admin</a>
+        <!-- link Admin akan ditunjuk/ disembunyi oleh JS -->
+        <a href="#" data-view="admin" class="nav-link font-medium text-gray-600 hover:text-cyan-600 transition-colors" style="display:none;">Admin</a>
       </nav>
 
       <div class="flex items-center gap-2">
@@ -53,11 +57,16 @@
       </div>
     </header>
 
+    <!-- Main -->
     <main class="pb-24 md:pb-8">
+      <!-- Home -->
       <div id="home-view" class="view active">
         <section class="relative">
           <div class="absolute inset-0 bg-gradient-to-t from-cyan-800/50 to-cyan-600/10"></div>
-          <img src="https://images.unsplash.com/photo-1524638431109-93d95c968f03?q=80&w=2574&auto=format&fit=crop" class="w-full h-64 md:h-[450px] object-cover" alt="Hero Banner">
+          <!-- HERO image (akan di-override oleh settings.hero_image_url) -->
+          <img id="hero-img"
+               src="https://images.unsplash.com/photo-1524638431109-93d95c968f03?q=80&w=2574&auto=format&fit=crop"
+               class="w-full h-64 md:h-[450px] object-cover" alt="Hero Banner" />
           <div class="absolute inset-0 flex flex-col items-center justify-center text-white p-4 text-center">
             <h2 class="text-3xl md:text-5xl font-extrabold drop-shadow-lg">KOLEKSI KRAF UNIK</h2>
             <p class="text-sm md:text-lg mt-2 mb-6 drop-shadow">Temukan keindahan seni dan budaya dalam setiap produk.</p>
@@ -73,6 +82,7 @@
         </section>
       </div>
 
+      <!-- All products -->
       <div id="all-products-view" class="view">
         <section class="max-w-7xl mx-auto p-4 md:p-8">
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -91,7 +101,8 @@
           <div id="pagination" class="flex flex-wrap items-center gap-2 justify-center mt-8"></div>
         </section>
       </div>
-      
+
+      <!-- Wishlist -->
       <div id="wishlist-view" class="view">
         <section class="max-w-7xl mx-auto p-4 md:p-8">
           <h2 class="text-2xl md:text-3xl font-bold text-gray-900 mb-6">Wishlist Saya</h2>
@@ -99,21 +110,28 @@
         </section>
       </div>
 
+      <!-- Product detail (rendered by JS) -->
       <div id="product-detail-view" class="view"></div>
 
+      <!-- Admin -->
       <div id="admin-view" class="view">
         <section class="max-w-7xl mx-auto p-4 md:p-8">
           <div class="flex items-center justify-between mb-6">
             <h2 class="text-2xl md:text-3xl font-bold text-gray-900">Panel Pentadbir</h2>
             <div id="auth-area" class="flex items-center gap-2"></div>
           </div>
+
           <div class="border-b border-gray-200 mb-6">
             <nav id="admin-tabs" class="flex gap-4 -mb-px" aria-label="Tabs">
-              <button data-tab="dashboard" class="admin-tab active">Papan Pemuka</button>
-              <button data-tab="products"  class="admin-tab">Urus Produk</button>
-              <button data-tab="orders"    class="admin-tab">Pesanan</button>
+              <button data-tab="dashboard"  class="admin-tab active">Papan Pemuka</button>
+              <button data-tab="products"   class="admin-tab">Urus Produk</button>
+              <button data-tab="orders"     class="admin-tab">Pesanan</button>
+              <button data-tab="categories" class="admin-tab">Kategori</button>
+              <button data-tab="settings"   class="admin-tab">Tetapan</button>
             </nav>
           </div>
+
+          <!-- Dashboard -->
           <div id="admin-dashboard-content" class="admin-tab-content">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div class="stat-card"><h3>Jumlah Produk</h3><p id="admin-total-products" class="stat-num">0</p></div>
@@ -121,21 +139,60 @@
               <div class="stat-card amber"><h3>Jualan Terkumpul</h3><p id="admin-total-sales" class="stat-num">RM0.00</p></div>
             </div>
           </div>
+
+          <!-- Products -->
           <div id="admin-products-content" class="admin-tab-content hidden">
             <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
               <div class="flex gap-2">
                 <button id="add-product-btn" class="btn-primary"><i data-lucide="plus" class="w-4 h-4 mr-2"></i>Tambah Produk</button>
-                <label class="btn-light cursor-pointer"><i data-lucide="upload" class="w-4 h-4 mr-2"></i>Import JSON<input id="import-json" type="file" accept="application/json" class="hidden"></label>
+                <label class="btn-light cursor-pointer"><i data-lucide="upload" class="w-4 h-4 mr-2"></i>Import JSON
+                  <input id="import-json" type="file" accept="application/json" class="hidden">
+                </label>
                 <button id="export-json" class="btn-light"><i data-lucide="download" class="w-4 h-4 mr-2"></i>Export JSON</button>
               </div>
             </div>
             <div id="admin-product-list" class="overflow-x-auto"></div>
           </div>
-          <div id="admin-orders-content" class="admin-tab-content hidden"><div id="admin-order-list"></div></div>
+
+          <!-- Orders -->
+          <div id="admin-orders-content" class="admin-tab-content hidden">
+            <div id="admin-order-list"></div>
+          </div>
+
+          <!-- Categories -->
+          <div id="admin-categories-content" class="admin-tab-content hidden">
+            <div class="flex flex-wrap items-center gap-2 mb-4">
+              <input id="new-category-name" class="border rounded-md p-2" placeholder="Nama kategori baharu" />
+              <button id="add-category-btn" class="btn-primary">Tambah Kategori</button>
+            </div>
+            <div id="category-list" class="bg-white border rounded-lg divide-y"></div>
+            <p class="text-xs text-gray-500 mt-2">
+              Memadam kategori tidak akan memadam produk. Produk sedia ada kekal dengan nama kategori tersebut.
+            </p>
+          </div>
+
+          <!-- Settings -->
+          <div id="admin-settings-content" class="admin-tab-content hidden">
+            <div class="bg-white rounded-lg border p-4">
+              <h3 class="font-bold mb-3">Hero Banner</h3>
+              <div class="flex items-center gap-4">
+                <img id="hero-preview" src="" class="w-48 h-24 object-cover rounded border">
+                <div class="space-y-2">
+                  <input id="hero-file" type="file" accept="image/*" class="block">
+                  <button id="save-hero-btn" class="btn-primary">Simpan Gambar Hero</button>
+                  <p class="text-xs text-gray-500">
+                    Disimpan ke bucket <code>kisuka_culture/settings</code> & URL diset dalam jadual
+                    <code>settings</code> (key: <code>hero_image_url</code>).
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </main>
 
+    <!-- Bottom Nav (mobile) -->
     <nav class="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t z-20 md:hidden">
       <div class="flex justify-around py-2">
         <a href="#" data-view="home" class="nav-link nav-bottom"><i data-lucide="home" class="w-6 h-6"></i><span class="text-xs mt-1">Utama</span></a>
@@ -145,8 +202,10 @@
         <a href="#" data-view="admin" class="nav-link nav-bottom"><i data-lucide="shield" class="w-6 h-6"></i><span class="text-xs mt-1">Admin</span></a>
       </div>
     </nav>
-    
+
+    <!-- Panels & overlays -->
     <div id="overlay" class="overlay fixed inset-0 bg-black/60 z-30 hidden"></div>
+
     <div id="mobile-menu" class="panel left">
       <div class="p-6">
         <h2 class="text-xl font-bold text-cyan-600 mb-8">MENU</h2>
@@ -154,10 +213,11 @@
           <a href="#" data-view="home" class="nav-link font-medium text-lg text-gray-700 hover:text-cyan-600">Utama</a>
           <a href="#" data-view="all-products" class="nav-link font-medium text-lg text-gray-700 hover:text-cyan-600">Semua Produk</a>
           <a href="#" data-view="wishlist" class="nav-link font-medium text-lg text-gray-700 hover:text-cyan-600">Wishlist</a>
-          <a href="#" data-view="admin" class="nav-link font-medium text-lg text-gray-700 hover:text-cyan-600" style="display: none;">Admin</a>
+          <a href="#" data-view="admin" class="nav-link font-medium text-lg text-gray-700 hover:text-cyan-600" style="display:none;">Admin</a>
         </nav>
       </div>
     </div>
+
     <div id="search-modal" class="panel top p-4 bg-white shadow-lg">
       <div class="max-w-7xl mx-auto flex items-center gap-2">
         <i data-lucide="search" class="w-5 h-5 text-gray-400"></i>
@@ -165,6 +225,7 @@
         <button id="close-search-btn" class="p-2 rounded-full hover:bg-gray-200" aria-label="Tutup cari"><i data-lucide="x" class="w-6 h-6 text-gray-700"></i></button>
       </div>
     </div>
+
     <div id="cart-panel" class="panel right flex flex-col">
       <div class="flex justify-between items-center p-4 border-b">
         <h2 class="text-xl font-bold">Troli Anda</h2>
@@ -194,6 +255,7 @@
       </div>
     </div>
 
+    <!-- Checkout modal -->
     <div id="checkout-modal" class="modal hidden">
       <div class="modal-card">
         <h2 class="text-2xl font-bold mb-4">Maklumat Pembayaran</h2>
@@ -234,6 +296,7 @@
       </div>
     </div>
 
+    <!-- Product form modal -->
     <div id="product-form-modal" class="modal hidden">
       <div class="modal-card max-w-lg">
         <form id="product-form">
@@ -257,15 +320,21 @@
               <input id="product-category" class="mt-1 w-full border rounded-md p-2" placeholder="cth: Artistik" required />
             </div>
           </div>
+
+          <!-- MULTI IMAGE -->
           <div class="mt-3">
-            <label class="block text-sm font-medium text-gray-700">Gambar Produk (upload)</label>
-            <input id="product-image-file" type="file" accept="image/*" class="mt-1 w-full border rounded-md p-2" />
-            <p class="text-xs text-gray-500 mt-1">Struktur: <code>kategori/auto-nama.jpg</code> di bucket <code>kisuka_culture</code></p>
+            <label class="block text-sm font-medium text-gray-700">Gambar Produk (multi-upload)</label>
+            <input id="product-images" type="file" accept="image/*" multiple class="mt-1 w-full border rounded-md p-2" />
+            <p class="text-xs text-gray-500 mt-1">Anda boleh pilih banyak gambar. Gambar pertama akan menjadi gambar utama.</p>
+            <div id="product-images-preview" class="flex flex-wrap gap-2 mt-2"></div>
+            <input type="hidden" id="product-existing-images" value="[]">
           </div>
+
           <div class="mt-3">
-            <label class="block text-sm font-medium text-gray-700">Atau URL Gambar (opsyenal)</label>
+            <label class="block text-sm font-medium text-gray-700">Atau URL Gambar (1 keping – opsyenal)</label>
             <input id="product-image" type="url" class="mt-1 w-full border rounded-md p-2" placeholder="https://..." />
           </div>
+
           <div class="mt-3">
             <label class="block text-sm font-medium text-gray-700">Penerangan</label>
             <textarea id="product-description" rows="3" class="mt-1 w-full border rounded-md p-2" required></textarea>
@@ -281,6 +350,7 @@
     <div id="toast-container" class="fixed bottom-5 right-5 z-50"></div>
   </div>
 
+  <!-- Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./script.js"></script>
 </body>

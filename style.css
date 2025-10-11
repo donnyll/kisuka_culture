@@ -17,12 +17,10 @@ body {
 .nav-link.active { color: var(--brand) }
 .nav-bottom { display:flex; flex-direction:column; align-items:center; color:#6b7280 }
 
-
 /* Badges */
 .badge-dot {
   position: absolute; top: -5px; right: -5px;
-  background: #dc2626; /* Red-600 */
-  color: #fff; font-size: 11px; font-weight: 600;
+  background: #dc2626; color: #fff; font-size: 11px; font-weight: 600;
   border-radius: 999px; height: 18px; width: 18px;
   display: flex; align-items: center; justify-content: center;
   border: 2px solid white;
@@ -76,27 +74,13 @@ body {
 .btn-dark { background:#1f2937; color:#fff; padding:.5rem 1rem; }
 .btn-dark:hover { background: #111827; }
 
-/* Product Card Skeleton Loader */
-.skeleton-card {
-  background-color: #f3f4f6;
-  border-radius: 0.5rem;
-  overflow: hidden;
-}
-.skeleton-card .img {
-  background-color: #e5e7eb;
-  height: 10rem;
-}
-.skeleton-card .text {
-  background-color: #e5e7eb;
-  height: 1rem;
-  border-radius: 0.25rem;
-}
-@keyframes pulse {
-  50% { opacity: .5; }
-}
-.skeleton-card { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+/* Product Card Skeleton */
+.skeleton-card { background-color: #f3f4f6; border-radius: 0.5rem; overflow: hidden; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.skeleton-card .img { background-color: #e5e7eb; height: 10rem; }
+.skeleton-card .text { background-color: #e5e7eb; height: 1rem; border-radius: 0.25rem; }
+@keyframes pulse { 50% { opacity: .5; } }
 
-/* Cart Icon Animation */
+/* Cart Icon */
 @keyframes shake {
   10%, 90% { transform: translate3d(-1px, 0, 0); }
   20%, 80% { transform: translate3d(2px, 0, 0); }
@@ -105,7 +89,7 @@ body {
 }
 .cart-shake { animation: shake 0.8s cubic-bezier(.36,.07,.19,.97) both; }
 
-/* Toasts/animations */
+/* Toast */
 @keyframes slideInUpFadeOut {
   0% { opacity: 0; transform: translateY(20px) }
   10% { opacity: 1; transform: translateY(0) }

@@ -12,8 +12,7 @@ const money = n => "RM" + (Number(n)||0).toFixed(2);
 const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
 function showToast(msg, type='success'){
-  const c = $("#toast-container");
-  if (!c) return;
+  const c = $("#toast-container"); if (!c) return;
   const el = document.createElement('div');
   el.className = `toast-notification ${type==='success'?'bg-gray-800':'bg-red-600'} text-white text-sm font-semibold py-2 px-4 rounded-full shadow-lg`;
   el.textContent = msg;
@@ -27,31 +26,27 @@ let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let coupon = JSON.parse(localStorage.getItem(KEYS.COUPON) || "null");
 let shipping = localStorage.getItem(KEYS.SHIPPING) || "standard";
 
-// UI state
 let ALL_PRODUCTS = [];
 let TOTAL_PRODUCTS = 0;
 let CURRENT_FILTER = { category:'Semua', term:'', sort:'popular' };
 let currentPage = 1;
 const pageSize = 8;
 
-/* ====== AUTH GATE (dikemaskini) ====== */
+let CATEGORIES = [];       // from DB
+let HERO_IMAGE_URL = null; // from DB
+
+/* ====== AUTH GATE (fixed) ====== */
 async function applyAuthGate(redirectIfDenied = false) {
   const { data: { user } } = await supabase.auth.getUser();
   const links = $$('[data-view="admin"]');
   const isAdmin = !!user && user.user_metadata?.role === "admin";
-
-  // Sembunyikan/unjurkan link Admin pada navbar/menu
   links.forEach(a => a.style.display = isAdmin ? "" : "none");
-
-  // HANYA redirect jika benar-benar diminta
   if (!isAdmin && redirectIfDenied) {
-    // jika anda mahu kekalkan toast, biarkan satu baris ini
     showToast("Anda perlu login sebagai admin untuk akses panel ini", "error");
     switchView("home");
   }
   return isAdmin;
 }
-
 
 async function renderAuthArea(){
   const { data: { user } } = await supabase.auth.getUser();
@@ -67,7 +62,12 @@ async function renderAuthArea(){
       switchView("home");
     });
   } else {
-    area.innerHTML = `<form id="login-form" class="flex gap-2"><input type="email" id="login-email" placeholder="admin@email.com" class="border rounded-md p-2 text-sm" required><input type="password" id="login-pass" placeholder="kata laluan" class="border rounded-md p-2 text-sm" required><button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button></form>`;
+    area.innerHTML = `
+    <form id="login-form" class="flex gap-2 flex-wrap">
+      <input type="email" id="login-email" placeholder="admin@email.com" class="border rounded-md p-2 text-sm" required>
+      <input type="password" id="login-pass" placeholder="kata laluan" class="border rounded-md p-2 text-sm" required>
+      <button class="btn-primary !py-2 !px-3"><i data-lucide="log-in" class="w-4 h-4 mr-1"></i>Log Masuk</button>
+    </form>`;
     iconify();
     $("#login-form")?.addEventListener("submit", async (e)=>{
       e.preventDefault();
@@ -81,6 +81,43 @@ async function renderAuthArea(){
       await renderAdmin();
     });
   }
+}
+
+/* ====== SETTINGS & CATEGORIES ====== */
+async function fetchSettings() {
+  const { data, error } = await supabase.from('settings').select('*').eq('key','hero_image_url').maybeSingle();
+  if (!error && data) HERO_IMAGE_URL = data.value;
+  const heroImg = $('#hero-img'); const heroPrev = $('#hero-preview');
+  if (heroImg && HERO_IMAGE_URL) heroImg.src = HERO_IMAGE_URL;
+  if (heroPrev) heroPrev.src = HERO_IMAGE_URL || (heroImg ? heroImg.src : '');
+}
+async function saveHeroImage(file) {
+  if (!file) throw new Error('Pilih gambar dahulu.');
+  const path = `settings/hero_${uid()}.${(file.name.split('.').pop()||'jpg').toLowerCase()}`;
+  const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
+  if (upErr) throw upErr;
+  const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const url = pub.publicUrl;
+  const { error } = await supabase.from('settings').upsert({ key:'hero_image_url', value: url });
+  if (error) throw error;
+  HERO_IMAGE_URL = url;
+  const heroImg = $('#hero-img'); const heroPrev = $('#hero-preview');
+  if (heroImg) heroImg.src = url;
+  if (heroPrev) heroPrev.src = url;
+}
+
+async function fetchCategories() {
+  const { data, error } = await supabase.from('categories').select('*').order('name');
+  if (!error && data) CATEGORIES = data;
+  return CATEGORIES;
+}
+async function addCategory(name) {
+  const { error } = await supabase.from('categories').insert({ name });
+  if (error) throw error;
+}
+async function deleteCategory(id) {
+  const { error } = await supabase.from('categories').delete().eq('id', id);
+  if (error) throw error;
 }
 
 /* ====== SERVER DATA ====== */
@@ -105,44 +142,73 @@ async function fetchProductsServer({ page=1, term="", category="Semua", sort="po
   return { rows: data||[], count: count||0 };
 }
 async function fetchOrders(){
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || user.user_metadata?.role!=='admin') return [];
-    const { data, error } = await supabase.from('orders').select('*').order('date', { ascending:false });
-    if (error){ showToast("Gagal memuat pesanan", 'error'); return []; }
-    return data || [];
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || user.user_metadata?.role!=='admin') return [];
+  const { data, error } = await supabase.from('orders').select('*').order('date', { ascending:false });
+  if (error){ showToast("Gagal memuat pesanan", 'error'); return []; }
+  return data || [];
 }
-async function createOrUpdateProduct(record, file){
-    let image_url = record.image_url?.trim() || "";
-    if (file){
-        const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
-        const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${ext}`;
-        const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:true });
-        if (upErr) throw upErr;
-        const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-        image_url = pub.publicUrl;
+
+/* ====== Create/Update Product (multi-image) ====== */
+async function createOrUpdateProduct(record, files){
+  let images = [];
+  try {
+    images = JSON.parse($('#product-existing-images')?.value || '[]');
+    if (!Array.isArray(images)) images = [];
+  } catch { images = []; }
+
+  if (record.image_url && record.image_url.trim()) {
+    const url = record.image_url.trim();
+    images = [url, ...images.filter(x => x !== url)];
+  }
+
+  if (files && files.length) {
+    const uploads = [];
+    for (const file of files) {
+      const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+      const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${ext}`;
+      uploads.push(
+        supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert:true })
+          .then(({ error }) => {
+            if (error) throw error;
+            const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+            images.push(pub.publicUrl);
+          })
+      );
     }
-    const payload = {
-        name: record.name, description: record.description, price: Number(record.price),
-        category: record.category, stock: Number(record.stock), image_url
-    };
-    const { error } = record.id 
-        ? await supabase.from('products').update(payload).eq('id', record.id)
-        : await supabase.from('products').insert(payload);
+    await Promise.all(uploads);
+  }
+
+  const payload = {
+    name: record.name,
+    description: record.description,
+    price: Number(record.price),
+    category: record.category,
+    stock: Number(record.stock),
+    image_url: images[0] || '',
+    images
+  };
+
+  if (record.id) {
+    const { error } = await supabase.from('products').update(payload).eq('id', record.id);
     if (error) throw error;
+  } else {
+    const { error } = await supabase.from('products').insert(payload);
+    if (error) throw error;
+  }
 }
 async function deleteProduct(id){
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (error) throw error;
+  const { error } = await supabase.from('products').delete().eq('id', id);
+  if (error) throw error;
 }
 async function createOrder(order){
-    const { error } = await supabase.from('orders').insert(order);
-    if (error) throw error;
+  const { error } = await supabase.from('orders').insert(order);
+  if (error) throw error;
 }
 
 /* ====== RENDER UI ====== */
 const productBadge = p => {
-  const b=[];
-  if (p.stock === 0) b.push('<span class="text-[10px] bg-gray-800 text-white px-2 py-0.5 rounded-full font-semibold">HABIS</span>');
+  const b=[]; if (p.stock === 0) b.push('<span class="text-[10px] bg-gray-800 text-white px-2 py-0.5 rounded-full font-semibold">HABIS</span>');
   else if (p.stock > 0 && p.stock < 5) b.push('<span class="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-semibold">STOK TERHAD</span>');
   return b.join(' ');
 };
@@ -156,7 +222,7 @@ const productCard = p => {
       </button>
     </div>
     <div class="relative cursor-pointer">
-      <img src="${p.image_url || 'https://placehold.co/600x600?text=Produk'}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
+      <img src="${(p.image_url||'').trim() || 'https://placehold.co/600x600?text=Produk'}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
       ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
     </div>
     <div class="p-4 flex flex-col flex-grow">
@@ -183,9 +249,10 @@ const skeletonCard = () => `
     </div>
   </div>`;
 const renderSkeletonGrid = (grid) => {
-    if(!grid) return;
-    grid.innerHTML = Array.from({ length: pageSize }).map(skeletonCard).join('');
+  if(!grid) return;
+  grid.innerHTML = Array.from({ length: pageSize }).map(skeletonCard).join('');
 };
+
 function renderGrid(products, gridElement, emptyMsg) {
   if (!gridElement) return;
   gridElement.innerHTML = products.length
@@ -193,46 +260,64 @@ function renderGrid(products, gridElement, emptyMsg) {
     : `<p class="col-span-full text-center text-gray-500 py-12">${emptyMsg}</p>`;
   iconify();
 }
-function renderCategories(){
-    const wrap = $("#category-filters");
-    if (!wrap) return;
-    const cats = ['Semua', ...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean).sort())];
-    wrap.innerHTML = cats.map(c=> `<button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white text-gray-700 border'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200">${c}</button>`).join('');
+
+/* Categories filter (uses DB categories + products) */
+async function renderCategories(){
+  const wrap = $("#category-filters");
+  if (!wrap) return;
+  const dbCats = (await fetchCategories()).map(c => c.name);
+  const prodCats = [...new Set(ALL_PRODUCTS.map(p=>p.category).filter(Boolean))];
+  const cats = ['Semua', ...new Set([...dbCats, ...prodCats])].sort((a,b)=>a.localeCompare(b));
+  wrap.innerHTML = cats.map(c=> `
+    <button data-category="${c}"
+      class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white text-gray-700 border'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200">
+      ${c}
+    </button>
+  `).join('');
 }
+
 function renderPagination(){
-    const box = $("#pagination");
-    if (!box) return;
-    if (TOTAL_PRODUCTS <= pageSize) { box.innerHTML = ''; return; }
-    const totalPages = Math.ceil(TOTAL_PRODUCTS / pageSize);
-    let html = "";
-    for (let i=1; i<=totalPages; i++){
-        html += `<button class="px-3 py-1 rounded-md text-sm ${i===currentPage?'bg-cyan-600 text-white':'bg-white border hover:bg-gray-100'}" data-page="${i}">${i}</button>`;
-    }
-    box.innerHTML = html;
+  const box = $("#pagination");
+  if (!box) return;
+  if (TOTAL_PRODUCTS <= pageSize) { box.innerHTML = ''; return; }
+  const totalPages = Math.ceil(TOTAL_PRODUCTS / pageSize);
+  let html = "";
+  for (let i=1; i<=totalPages; i++){
+    html += `<button class="px-3 py-1 rounded-md text-sm ${i===currentPage?'bg-cyan-600 text-white':'bg-white border hover:bg-gray-100'}" data-page="${i}">${i}</button>`;
+  }
+  box.innerHTML = html;
 }
+
 async function renderProductDetail(id){
   const view = $("#product-detail-view");
   if (!view) return;
   view.innerHTML = `<div class="p-8 text-center">Memuat...</div>`;
   let p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
-  
   if (!p) {
-      const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
-      if (error || !data) { view.innerHTML='<p class="p-8 text-center">Produk tidak ditemui.</p>'; return; }
-      p = data;
+    const res = await supabase.from('products').select('*').eq('id', id).single();
+    if (res.error || !res.data) { view.innerHTML='<p class="p-8 text-center">Produk tidak ditemui.</p>'; return; }
+    p = res.data;
   }
-  
+  const images = Array.isArray(p.images) && p.images.length ? p.images : [p.image_url].filter(Boolean);
   const isWishlisted = wishlist.includes(String(p.id));
+
   view.innerHTML = `
-    <section class="max-w-5xl mx-auto p-4 md:p-8">
+    <section class="max-w-6xl mx-auto p-4 md:p-8">
       <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline">
         <i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali ke Semua Produk
       </a>
       <div class="grid md:grid-cols-2 gap-8 md:gap-12">
-        <div><img src="${p.image_url || 'https://placehold.co/800x800?text=Gambar'}" alt="${p.name}" class="w-full rounded-lg shadow-lg"></div>
+        <div>
+          <div class="border rounded-lg overflow-hidden">
+            <img id="pd-main" src="${images[0]||'https://placehold.co/800x800?text=Gambar'}" class="w-full object-contain max-h-[520px] bg-white">
+          </div>
+          <div class="flex flex-wrap gap-2 mt-3">
+            ${images.map((u,i)=>`<img data-idx="${i}" src="${u}" class="pd-thumb w-20 h-20 object-cover rounded border cursor-pointer ${i===0?'ring-2 ring-cyan-500':''}">`).join('')}
+          </div>
+        </div>
         <div>
           <h2 class="text-3xl font-extrabold">${p.name}</h2>
-          <p class="text-gray-500 text-sm mt-1">Kategori: ${p.category}</p>
+          <p class="text-gray-500 text-sm mt-1">Kategori: ${p.category||'-'}</p>
           <p class="text-3xl font-bold text-gray-900 my-4">${money(p.price)}</p>
           <p class="text-gray-600 leading-relaxed">${p.description || 'Tiada penerangan.'}</p>
           ${p.stock > 0 && p.stock < 10 ? `<p class="text-red-600 font-semibold text-sm mt-4">${p.stock} unit sahaja lagi!</p>`:''}
@@ -245,18 +330,27 @@ async function renderProductDetail(id){
       </div>
     </section>
   `;
+  $('#product-detail-view')?.addEventListener('click', (e)=>{
+    const t = e.target.closest('.pd-thumb'); if (!t) return;
+    const idx = Number(t.dataset.idx)||0;
+    $('#pd-main').src = images[idx];
+    $$('.pd-thumb', view).forEach(el=>el.classList.remove('ring-2','ring-cyan-500'));
+    t.classList.add('ring-2','ring-cyan-500');
+  });
+
   iconify();
 }
+
 async function renderWishlist() {
-    const grid = $("#wishlist-grid");
-    if (!grid) return;
-    if (wishlist.length === 0) {
-        grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>';
-        return;
-    }
-    renderSkeletonGrid(grid);
-    const { rows } = await fetchProductsServer({ ids: wishlist });
-    renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
+  const grid = $("#wishlist-grid");
+  if (!grid) return;
+  if (wishlist.length === 0) {
+    grid.innerHTML = '<p class="col-span-full text-center text-gray-500 py-12">Wishlist anda kosong.</p>';
+    return;
+  }
+  renderSkeletonGrid(grid);
+  const { rows } = await fetchProductsServer({ ids: wishlist });
+  renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
 }
 
 /* ====== CART ====== */
@@ -265,52 +359,52 @@ function shippingFee(){ if (coupon?.type==='freeship') return 0; return shipping
 function discountAmount(sub){ if (!coupon) return 0; if (coupon.type==='percent') return sub*(coupon.amount/100); return 0; }
 function cartTotal(){ const sub=cartSubtotal(); return Math.max(0, sub-discountAmount(sub)) + shippingFee(); }
 function renderCart(){
-    const box = $("#cart-items");
-    if (box){
-        if (cart.length===0) box.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center"><i data-lucide="shopping-basket" class="w-16 h-16 text-gray-300"></i><p class="text-gray-500 mt-4">Troli anda kosong.</p></div>';
-        else {
-            box.innerHTML = cart.map(it=>`
-                <div class="flex items-start gap-4 mb-4 pb-4 border-b">
-                  <img src="${it.image_url || 'https://placehold.co/80x80'}" alt="${it.name}" class="w-20 h-20 object-cover rounded-md border">
-                  <div class="flex-grow">
-                    <p class="text-sm font-semibold">${it.name}</p>
-                    <p class="text-sm font-bold my-1">${money(it.price*it.quantity)}</p>
-                    <div class="flex items-center gap-3 my-1">
-                      <button data-action="decrement" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">-</button>
-                      <span class="font-bold text-sm">${it.quantity}</span>
-                      <button data-action="increment" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">+</button>
-                    </div>
-                  </div>
-                  <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
-                </div>
-            `).join('');
-        }
+  const box = $("#cart-items");
+  if (box){
+    if (cart.length===0) box.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center"><i data-lucide="shopping-basket" class="w-16 h-16 text-gray-300"></i><p class="text-gray-500 mt-4">Troli anda kosong.</p></div>';
+    else {
+      box.innerHTML = cart.map(it=>`
+        <div class="flex items-start gap-4 mb-4 pb-4 border-b">
+          <img src="${it.image_url || 'https://placehold.co/80x80'}" alt="${it.name}" class="w-20 h-20 object-cover rounded-md border">
+          <div class="flex-grow">
+            <p class="text-sm font-semibold">${it.name}</p>
+            <p class="text-sm font-bold my-1">${money(it.price*it.quantity)}</p>
+            <div class="flex items-center gap-3 my-1">
+              <button data-action="decrement" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">-</button>
+              <span class="font-bold text-sm">${it.quantity}</span>
+              <button data-action="increment" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100">+</button>
+            </div>
+          </div>
+          <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
+        </div>
+      `).join('');
     }
-    const cartItems = cart.reduce((s,i)=>s+i.quantity,0);
-    $("#cart-count").textContent = cartItems;
-    $("#mobile-cart-count").textContent = cartItems;
-    $("#wishlist-count").textContent = wishlist.length;
+  }
+  const cartItems = cart.reduce((s,i)=>s+i.quantity,0);
+  $("#cart-count").textContent = cartItems;
+  $("#mobile-cart-count").textContent = cartItems;
+  $("#wishlist-count").textContent = wishlist.length;
 
-    const subEl=$("#cart-subtotal"); if (subEl) subEl.textContent = money(cartSubtotal());
-    const totEl=$("#cart-total");    if (totEl) totEl.textContent = money(cartTotal());
-    localStorage.setItem(KEYS.CART, JSON.stringify(cart));
-    iconify();
+  const subEl=$("#cart-subtotal"); if (subEl) subEl.textContent = money(cartSubtotal());
+  const totEl=$("#cart-total");    if (totEl) totEl.textContent = money(cartTotal());
+  localStorage.setItem(KEYS.CART, JSON.stringify(cart));
+  iconify();
 }
 function addToCart(p){
-    const it = cart.find(x=>String(x.id)===String(p.id));
-    if (it){ if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); } else return showToast(`Stok ${p.name} tidak mencukupi!`,'error'); }
-    else { if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 }); else return showToast(`Stok ${p.name} habis!`, 'error'); }
-    renderCart();
-    const cartBtn = $("#cart-btn");
-    if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
+  const it = cart.find(x=>String(x.id)===String(p.id));
+  if (it){ if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); } else return showToast(`Stok ${p.name} tidak mencukupi!`,'error'); }
+  else { if (p.stock > 0) cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:p.image_url, stock:p.stock, quantity:1 }); else return showToast(`Stok ${p.name} habis!`, 'error'); }
+  renderCart();
+  const cartBtn = $("#cart-btn");
+  if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
 }
 const removeFromCart = id => { cart = cart.filter(i=>String(i.id)!==String(id)); renderCart(); };
 async function updateQuantity(id, d){
-    const it = cart.find(i=>String(i.id)===String(id)); if (!it) return;
-    const q = it.quantity + d; if (q<=0) return removeFromCart(id);
-    const { data: p } = await supabase.from('products').select('stock, name').eq('id', id).single();
-    if (!p || q > p.stock) return showToast(`Stok ${p?.name||''} tidak mencukupi!`,'error');
-    it.quantity=q; renderCart();
+  const it = cart.find(i=>String(i.id)===String(id)); if (!it) return;
+  const q = it.quantity + d; if (q<=0) return removeFromCart(id);
+  const { data: p } = await supabase.from('products').select('stock, name').eq('id', id).single();
+  if (!p || q > p.stock) return showToast(`Stok ${p?.name||''} tidak mencukupi!`,'error');
+  it.quantity=q; renderCart();
 }
 
 /* ====== PANELS & NAV ====== */
@@ -334,7 +428,7 @@ function closeAllPanels(){
   $("#search-modal").style.transform='translateY(-100%)';
   $$(".modal").forEach(m => m.classList.remove('show'));
 }
-/* ====== Tukar Paparan (dikemaskini) ====== */
+
 async function switchView(view){
   $$('.view').forEach(v=>v.classList.remove('active'));
   const tgt = $(`#${view}-view`);
@@ -344,37 +438,54 @@ async function switchView(view){
   window.scrollTo({ top:0, behavior:'smooth' });
 
   if (view === 'admin') {
-    // JANGAN redirect di sini; sentiasa render auth area
-    const isAdmin = await applyAuthGate(false);   // false = jangan paksa redirect
-    await renderAuthArea();                       // jika belum login => borang login dipaparkan
-    if (isAdmin) await renderAdmin();             // hanya admin sebenar akan load data admin
+    const isAdmin = await applyAuthGate(false);
+    await renderAuthArea();
+    if (isAdmin) await renderAdmin();
     return;
   }
-
-  if (['home', 'all-products'].includes(view)) {
-    await loadPage();
-    return;
-  }
-
-  if (view === 'wishlist') {
-    await renderWishlist();
-    return;
-  }
+  if (['home', 'all-products'].includes(view)) { await loadPage(); return; }
+  if (view === 'wishlist') { await renderWishlist(); return; }
 }
 
-
 /* ====== ADMIN ====== */
+function renderCategoryManager(){
+  const box = $('#category-list');
+  if (!box) return;
+  if (!CATEGORIES.length) { box.innerHTML = '<div class="p-3 text-sm text-gray-500">Tiada kategori lagi.</div>'; return; }
+  box.innerHTML = CATEGORIES.map(c => `
+    <div class="flex items-center justify-between p-3">
+      <span class="font-medium">${c.name}</span>
+      <button data-cat-id="${c.id}" class="text-red-600 hover:underline cat-delete">Padam</button>
+    </div>
+  `).join('');
+}
+function wireCategoryActions(){
+  $('#add-category-btn')?.addEventListener('click', async ()=>{
+    const name = ($('#new-category-name')?.value||'').trim();
+    if (!name) return showToast('Masukkan nama kategori','error');
+    try { await addCategory(name); showToast('Kategori ditambah'); $('#new-category-name').value=''; await fetchCategories(); renderCategoryManager(); renderCategories(); }
+    catch (e){ showToast(e.message||'Gagal tambah kategori','error'); }
+  });
+  $('#category-list')?.addEventListener('click', async (e)=>{
+    const b = e.target.closest('.cat-delete'); if (!b) return;
+    const id = b.dataset.catId;
+    if (!confirm('Padam kategori ini?')) return;
+    try { await deleteCategory(id); showToast('Kategori dipadam'); await fetchCategories(); renderCategoryManager(); renderCategories(); }
+    catch (e){ showToast(e.message||'Gagal padam','error'); }
+  });
+}
+
 async function renderAdmin(){
   const [orders, {rows: adminProducts, count}] = await Promise.all([
-    fetchOrders(), 
-    fetchProductsServer({ page: 1, pageSize: 100 }) // Fetch more for admin view
+    fetchOrders(),
+    fetchProductsServer({ page: 1, pageSize: 100 })
   ]);
   TOTAL_PRODUCTS = count;
 
   $("#admin-total-products").textContent = TOTAL_PRODUCTS;
   $("#admin-total-orders").textContent = orders.length;
   $("#admin-total-sales").textContent = money(orders.reduce((s,o)=> s + Number(o.total||0), 0));
-  
+
   const productList = $("#admin-product-list");
   if (productList) {
     productList.innerHTML = `
@@ -396,6 +507,7 @@ async function renderAdmin(){
           </tr>`).join('')}
         </tbody></table>`;
   }
+
   const orderList = $("#admin-order-list");
   if (orderList) {
     if (orders.length === 0) orderList.innerHTML = '<p>Tiada pesanan lagi.</p>';
@@ -420,6 +532,19 @@ async function renderAdmin(){
         </div>`).join('');
     }
   }
+
+  // Settings (hero)
+  await fetchSettings();
+  $('#save-hero-btn')?.addEventListener('click', async ()=>{
+    const f = $('#hero-file')?.files?.[0];
+    try { await saveHeroImage(f); showToast('Hero berjaya dikemaskini'); }
+    catch (e){ showToast(e.message||'Gagal simpan hero','error'); }
+  });
+
+  // Categories
+  await fetchCategories();
+  renderCategoryManager();
+  wireCategoryActions();
 }
 
 /* ====== LOAD PAGE CONTENT ====== */
@@ -429,19 +554,10 @@ async function loadPage(){
   const { rows, count } = await fetchProductsServer({ page: currentPage, term: CURRENT_FILTER.term, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
   ALL_PRODUCTS = rows;
   TOTAL_PRODUCTS = count;
-  renderCategories();
+  await renderCategories();
   renderGrid(ALL_PRODUCTS, grid, 'Tiada produk ditemui.');
   renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'Tiada produk pilihan.');
   renderPagination();
-}
-
-/* ====== MINI HASH ROUTER ====== */
-function handleHashRoute() {
-  const hash = (location.hash || '').replace('#', '').trim();
-  if (hash === 'admin') { switchView('admin'); return; }
-  if (hash === 'wishlist') { switchView('wishlist'); return; }
-  if (hash === 'all-products' || hash === 'products' || hash === 'all') { switchView('all-products'); return; }
-  switchView('home');
 }
 
 /* ====== EVENTS ====== */
@@ -449,9 +565,17 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   iconify();
   await applyAuthGate();
   await loadPage();
+  await fetchSettings();
+  await fetchCategories();
+  renderCategories();
   renderCart();
 
-  // penting: render ikut URL hash bila page dibuka
+  // router by hash
+  const handleHashRoute = () => {
+    const route = location.hash.replace('#','').trim();
+    if (route === 'admin') switchView('admin');
+  };
+  window.addEventListener('hashchange', handleHashRoute);
   handleHashRoute();
 
   document.body.addEventListener('click', async (e)=>{
@@ -459,14 +583,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const actionBtn = e.target.closest('button[data-action]');
     const detailBtn = e.target.closest('[data-action="view-detail"]');
 
-    if (nav?.dataset.view){
-      e.preventDefault();
-      // guna router: set hash sahaja, router yang tukar view
-      location.hash = nav.dataset.view;
-      closeAllPanels();
-      return;
-    }
-    if (detailBtn) { location.hash = 'product-detail'; switchView('product-detail'); renderProductDetail(detailBtn.dataset.id); }
+    if (nav?.dataset.view){ e.preventDefault(); switchView(nav.dataset.view); closeAllPanels(); }
+    if (detailBtn) { switchView('product-detail'); renderProductDetail(detailBtn.dataset.id); }
 
     if (actionBtn){
       const { action, id } = actionBtn.dataset;
@@ -500,7 +618,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
   $("#search-input")?.addEventListener('input', async (e)=>{
     CURRENT_FILTER.term = e.target.value; currentPage = 1;
-    if (!$('#all-products-view').classList.contains('active')) location.hash = 'all-products';
+    if (!$('#all-products-view').classList.contains('active')) switchView('all-products');
     else await loadPage();
   });
   $("#category-filters")?.addEventListener('click', async (e)=>{
@@ -511,6 +629,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const b = e.target.closest('button[data-page]');
     if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); }
   });
+
   $("#checkout-btn")?.addEventListener('click', ()=> { if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); });
 
   $("#apply-coupon-btn")?.addEventListener('click', ()=>{
@@ -523,16 +642,18 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     coupon=applied; localStorage.setItem(KEYS.COUPON, JSON.stringify(coupon)); renderCart(); showToast(`Kupon ${code} digunakan`);
   });
   $("#shipping-method")?.addEventListener('change', e=>{ shipping=e.target.value; localStorage.setItem(KEYS.SHIPPING, shipping); renderCart(); });
+
   $("#admin-tabs")?.addEventListener('click', e => {
-      const btn = e.target.closest('.admin-tab'); if (!btn) return;
-      $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active'));
-      btn.classList.add('active');
-      $$('.admin-tab-content').forEach(c => c.classList.add('hidden'));
-      $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
+    const btn = e.target.closest('.admin-tab'); if (!btn) return;
+    $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    $$('.admin-tab-content').forEach(c => c.classList.add('hidden'));
+    $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
   });
+
   $('#export-json')?.addEventListener('click', async () => {
     showToast('Mengeksport semua produk...');
-    const { data } = await supabase.from('products').select('name,description,price,category,stock,image_url');
+    const { data } = await supabase.from('products').select('name,description,price,category,stock,image_url,images');
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -541,28 +662,30 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     a.click(); URL.revokeObjectURL(url);
     showToast('Produk dieksport!');
   });
+
   $('#import-json')?.addEventListener('change', e => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
-        try {
-            const products = JSON.parse(event.target.result);
-            if (!Array.isArray(products)) throw new Error('JSON mesti dalam bentuk array.');
-            showToast(`Mengimport ${products.length} produk...`);
-            const { error } = await supabase.from('products').upsert(products, { onConflict: 'name' });
-            if (error) throw error;
-            showToast('Produk berjaya diimport!', 'success');
-            await loadPage(); await renderAdmin();
-        } catch(err) { showToast(err.message || 'Gagal mengimport JSON.', 'error'); }
+      try {
+        const products = JSON.parse(event.target.result);
+        if (!Array.isArray(products)) throw new Error('JSON mesti dalam bentuk array.');
+        showToast(`Mengimport ${products.length} produk...`);
+        const { error } = await supabase.from('products').upsert(products, { onConflict: 'name' });
+        if (error) throw error;
+        showToast('Produk berjaya diimport!', 'success');
+        await loadPage(); await renderAdmin();
+      } catch(err) { showToast(err.message || 'Gagal mengimport JSON.', 'error'); }
     };
     reader.readAsText(file);
   });
+
   $("#checkout-form")?.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const order = {
       id: uid().toUpperCase(), date: new Date().toISOString(),
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
-      subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status:'Pending', 
+      subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status:'Pending',
       address: { name:$("#co-name").value.trim(), phone:$("#co-phone").value.trim(), address:$("#co-address").value.trim() }
     };
     try {
@@ -576,19 +699,43 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       await loadPage();
     } catch(err) { showToast(err.message||'Ralat semasa membuat pesanan','error'); }
   });
+
   $("#add-product-btn")?.addEventListener('click', ()=> openProductForm());
   $("#cancel-product-form-btn")?.addEventListener('click', ()=> togglePanel('product-form-modal', false));
+
   $("#product-form")?.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const rec = {
-      id: $("#product-id").value || null, name: $("#product-name").value.trim(), price: parseFloat($("#product-price").value),
-      stock: parseInt($("#product-stock").value,10), category: $("#product-category").value.trim(),
-      image_url: $("#product-image").value.trim(), description: $("#product-description").value.trim()
+      id: $("#product-id").value || null,
+      name: $("#product-name").value.trim(),
+      price: parseFloat($("#product-price").value),
+      stock: parseInt($("#product-stock").value,10),
+      category: $("#product-category").value.trim(),
+      image_url: $("#product-image").value.trim(),
+      description: $("#product-description").value.trim()
     };
-    const file = $("#product-image-file").files[0] || null;
-    try { await createOrUpdateProduct(rec, file); togglePanel('product-form-modal', false); showToast('Produk disimpan!'); await loadPage(); await renderAdmin(); }
-    catch(err) { showToast(err.message||'Gagal simpan', 'error'); }
+    const files = $("#product-images")?.files || [];
+    try {
+      await createOrUpdateProduct(rec, files);
+      togglePanel('product-form-modal', false);
+      showToast('Produk disimpan!');
+      await loadPage(); await renderAdmin();
+    } catch(err) { showToast(err.message||'Gagal simpan', 'error'); }
   });
+
+  // remove existing image chip
+  document.body.addEventListener('click', (e)=>{
+    const rm = e.target.closest('button[data-remove-idx]');
+    if (!rm) return;
+    const idx = Number(rm.dataset.removeIdx);
+    try {
+      const arr = JSON.parse($('#product-existing-images').value||'[]');
+      arr.splice(idx,1);
+      $('#product-existing-images').value = JSON.stringify(arr);
+      rm.parentElement.remove();
+    } catch {}
+  });
+
   document.body.addEventListener('change', async (e)=>{
     if (e.target.classList.contains('order-status')){
       const id = e.target.getAttribute('data-order');
@@ -599,21 +746,32 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
 });
 
-// dengar perubahan hash URL
-window.addEventListener('hashchange', handleHashRoute);
-
 /* ====== Form helpers & receipt ====== */
 function openProductForm(id=null){
   const f = $("#product-form"); if (!f) return;
-  f.reset(); $("#product-id").value=""; $("#product-image-file").value="";
+  f.reset(); $("#product-id").value=""; $("#product-images").value=null;
   const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
   if (p) {
     $("#product-form-title").textContent='Kemas Kini Produk';
     $("#product-id").value = p.id; $("#product-name").value = p.name; $("#product-price").value = p.price;
     $("#product-stock").value = p.stock; $("#product-category").value = p.category||'';
     $("#product-image").value = p.image_url||''; $("#product-description").value = p.description||'';
+
+    $("#product-existing-images").value = JSON.stringify(Array.isArray(p.images)?p.images:[]);
+    const wrap = $('#product-images-preview');
+    if (wrap) {
+      const imgs = Array.isArray(p.images)?p.images:[p.image_url].filter(Boolean);
+      wrap.innerHTML = imgs.map((u,idx)=>`
+        <span class="inline-flex items-center gap-2 px-2 py-1 rounded-full border bg-white">
+          <img src="${u}" class="w-8 h-8 object-cover rounded">
+          <button type="button" data-remove-idx="${idx}" class="text-red-600 text-xs">padam</button>
+        </span>
+      `).join('');
+    }
   } else {
     $("#product-form-title").textContent='Tambah Produk Baharu';
+    $("#product-existing-images").value = "[]";
+    $('#product-images-preview')?.replaceChildren();
   }
   togglePanel('product-form-modal', true);
 }
