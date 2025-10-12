@@ -154,7 +154,6 @@ async function createOrUpdateProduct(record, files){
 }
 
 /* ====== RENDER FUNCTIONS ====== */
-// (Customer-facing render functions remain largely the same)
 const productBadge = p => {
     if (p.stock === 0) return '<span class="badge-stock badge-stock-out">HABIS</span>';
     if (p.stock < 5) return '<span class="badge-stock badge-stock-low">STOK TERHAD</span>';
@@ -209,20 +208,35 @@ function renderPagination(){
     .map(i => `<button class="px-3 py-1 rounded-md text-sm ${i===currentPage?'bg-cyan-600 text-white':'bg-white dark:bg-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'}" data-page="${i}">${i}</button>`)
     .join('');
 }
-async function renderProductDetail(id){
-  const view = $("#product-detail-view"); if (!view) return;
-  view.innerHTML = `<div class="p-8 text-center text-gray-700 dark:text-gray-300">Memuat...</div>`;
-  let p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
-  if (!p) {
-    const { data } = await supabase.from('products').select('*').eq('id', id).single();
-    if (!data) { view.innerHTML='<p class="p-8 text-center">Produk tidak ditemui.</p>'; return; }
-    p = data;
-  }
-  const isWishlisted = wishlist.includes(String(p.id));
-  view.innerHTML = `
+
+async function renderProductDetail(id) {
+    const view = $("#product-detail-view");
+    if (!view) return;
+    view.innerHTML = `<div class="p-8 text-center text-gray-700 dark:text-gray-300">Memuat...</div>`;
+
+    const { data: p, error } = await supabase.from('products').select('*').eq('id', id).single();
+    if (error || !p) {
+        view.innerHTML = '<p class="p-8 text-center">Produk tidak ditemui.</p>';
+        return;
+    }
+
+    const isWishlisted = wishlist.includes(String(p.id));
+    const allImages = normalizeImages(p.image_urls);
+    const mainImage = allImages.length > 0 ? allImages[0] : 'https://placehold.co/800x800?text=Gambar';
+
+    view.innerHTML = `
     <section class="max-w-5xl mx-auto p-4">
       <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline"><i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali</a>
-      <div><img src="${firstImageOf(p)}" alt="${p.name}" class="w-full rounded-lg shadow-lg"></div>
+      
+      <div>
+        <img id="main-product-image" src="${mainImage}" alt="${p.name}" class="w-full rounded-lg shadow-lg mb-4 object-cover h-80">
+        <div id="product-thumbnails" class="flex gap-2 overflow-x-auto pb-2">
+          ${allImages.map((img, index) => `
+            <img src="${img}" alt="Thumbnail ${index + 1}" data-img-src="${img}" class="thumbnail-img w-20 h-20 object-cover rounded-md cursor-pointer border-2 ${index === 0 ? 'border-cyan-500' : 'border-transparent'}">
+          `).join('')}
+        </div>
+      </div>
+
       <div class="text-gray-800 dark:text-gray-200 mt-4">
         <p class="text-gray-500 dark:text-gray-400 text-sm">Kategori: ${p.category}</p>
         <h2 class="text-3xl font-extrabold text-gray-900 dark:text-white mt-1">${p.name}</h2>
@@ -238,8 +252,18 @@ async function renderProductDetail(id){
         </div>
       </div>
     </section>`;
-  iconify();
+    iconify();
+
+    view.querySelector('#product-thumbnails')?.addEventListener('click', (e) => {
+        const target = e.target.closest('.thumbnail-img');
+        if (target) {
+            $('#main-product-image').src = target.dataset.imgSrc;
+            $$('.thumbnail-img').forEach(img => img.classList.remove('border-cyan-500'));
+            target.classList.add('border-cyan-500');
+        }
+    });
 }
+
 async function renderWishlist() {
   const grid = $("#wishlist-grid"); if (!grid) return;
   if (wishlist.length === 0) {
@@ -386,24 +410,27 @@ async function openProductForm(id = null) {
     form.reset();
     $("#product-id").value = "";
     $("#product-existing-images").value = "[]";
-    const previewContainer = $("#product-images-preview");
-    previewContainer.innerHTML = '';
+    $("#product-images-preview").innerHTML = '';
     
     await fetchCategories();
     const categoryInput = $("#product-category");
     categoryInput.innerHTML = `<option value="">Pilih Kategori</option>` + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
 
-    const {rows} = await fetchProductsServer({ids: id ? [id] : []});
-    const p = rows[0];
-
+    let p = null;
+    if (id) {
+        const { data } = await supabase.from('products').select('*').eq('id', id).single();
+        p = data;
+    }
+    
     if (p) {
         $("#product-form-title").textContent = 'Kemas Kini Produk';
-        $("#product-id").value = p.id; $("#product-name").value = p.name; $("#product-price").value = p.price;
-        $("#product-stock").value = p.stock; $("#product-category").value = p.category || '';
+        $("#product-id").value = p.id; $("#product-name").value = p.name;
+        $("#product-price").value = p.price; $("#product-stock").value = p.stock;
+        $("#product-category").value = p.category || '';
         $("#product-description").value = p.description || '';
         const existingImages = normalizeImages(p.image_urls);
         $("#product-existing-images").value = JSON.stringify(existingImages);
-        renderImagePreviews(existingImages, previewContainer);
+        renderImagePreviews(existingImages, $("#product-images-preview"));
     } else {
         $("#product-form-title").textContent = 'Tambah Produk Baharu';
     }
@@ -446,7 +473,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
     if (actionBtn){
       const { action, id } = actionBtn.dataset;
-      const p = ALL_PRODUCTS.find(x=>String(x.id)===String(id));
+      let p;
+      if (id) {
+          p = ALL_PRODUCTS.find(x => String(x.id) === String(id));
+          if (!p) {
+              const { data } = await supabase.from('products').select('stock, name').eq('id', id).single();
+              p = data;
+          }
+      }
+
       if (action==='add-to-cart' && p) addToCart(p);
       if (action==='remove-from-cart') removeFromCart(id);
       if (action==='increment') updateQuantity(id,+1);
@@ -556,3 +591,4 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       } catch (err) { showToast(err.message, 'error'); }
   });
 });
+
