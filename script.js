@@ -127,7 +127,7 @@ async function fetchOrders(){
   return data || [];
 }
 async function createOrder(order){
-  const { error } = await supabase.from('orders').insert(order); if (error) throw error;
+  const { error } = await supabase.from('orders').insert( cleanOrderPayload(order) ); if (error) throw error;
 }
 async function deleteProduct(id){
   const { error } = await supabase.from('products').delete().eq('id', id); if (error) throw error;
@@ -529,7 +529,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.body.addEventListener('change', async e => {
     if (e.target.classList.contains('order-status')){
-      const id = e.target.dataset.orderId; const { error } = await supabase.from('orders').update({ status:e.target.value }).eq('id', id);
+      const id = e.target.dataset.orderId; const { error } = await supabase.from('orders').update( cleanOrderPayload({ status:e.target.value }) ).eq('id', id);
       if (error) return showToast('Gagal kemaskini','error'); showToast('Status pesanan dikemaskini');
     }
   });
@@ -540,7 +540,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const order = {
       id: uid().toUpperCase(), date: new Date().toISOString(),
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
-      subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status: 'Pending',
+      subtotal: cartSubtotal(), shipping,  total: cartTotal(), status: 'Pending',
       address: { name: $("#co-name").value, phone: $("#co-phone").value, address: $("#co-address").value },
       payment_method: $("#co-payment").value, receipt_url: null
     };
@@ -720,3 +720,67 @@ document.querySelector("#checkout-form")?.addEventListener("submit", (e) => {
   }
 });
 // === END: Checkout/payment customizations ===
+
+
+// --- helper: prune unknown order columns to avoid Supabase 'schema cache' errors ---
+function cleanOrderPayload(payload){
+  if (!payload || typeof payload !== 'object') return payload;
+  const clone = { ...payload };
+  delete clone.shippingFee;
+  delete clone.shipping_fee;
+  delete clone.shipping;
+  delete clone.coupon;
+  delete clone.couponCode;
+  delete clone.discount;
+  delete clone.discount_amount;
+  return clone;
+}
+
+
+// === HARD DISABLE: coupon/shipping/discount ===
+if (!window.__DISABLE_EXTRAS__) {
+  window.__DISABLE_EXTRAS__ = true;
+  window.ENABLE_COUPON = false;
+  window.ENABLE_SHIPPING = false;
+  window.ENABLE_DISCOUNT = false;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // Remove any known coupon/shipping/discount sections if exist
+    [
+      '#coupon-section', '#shipping-section', '#summary-shipping', '#summary-discount',
+      '[data-section="coupon"]', '[data-section="shipping"]', '.coupon', '.shipping',
+      '#coupon', '#shipping', '#discount'
+    ].forEach(sel => document.querySelector(sel)?.remove());
+
+    // Ensure totals = sum of cart items only (no extras)
+    const safeCartTotal = () => (Array.isArray(window.cart) ? window.cart.reduce((s,i)=> s + (Number(i.price)||0) * (Number(i.quantity)||0), 0) : 0);
+
+    const subtotalEl = document.querySelector('#summary-subtotal');
+    const totalEl    = document.querySelector('#summary-total');
+    const refreshTotals = () => {
+      const total = safeCartTotal();
+      if (subtotalEl) subtotalEl.textContent = `RM${total.toFixed(2)}`;
+      if (totalEl)    totalEl.textContent    = `RM${total.toFixed(2)}`;
+    };
+    refreshTotals();
+    window.refreshTotalsNoExtras = refreshTotals;
+
+    // Neutralize any previously defined helpers (if app uses them)
+    window.getShippingFee   = () => 0;
+    window.getDiscountTotal = () => 0;
+  });
+}
+
+
+// === Admin gating inside view (safe override) ===
+if (typeof renderAdminView !== 'function') {
+  async function renderAdminView(){
+    const { data: { user } } = await supabase.auth.getUser();
+    const isAdmin = !!user && user.user_metadata?.role === "admin";
+    if (!isAdmin) {
+      try { renderAuthArea && renderAuthArea(); } catch(e) {}
+      return;
+    }
+    try { renderAdminPanel && renderAdminPanel(); } catch(e) {}
+  }
+}
