@@ -1,6 +1,7 @@
 /* ====== CONFIG: Supabase ====== */
 const SUPABASE_URL = "https://wzkkaiajzjiswdupkgna.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind6a2thaWFqemppc3dkdXBrZ25hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxMDI5MDUsImV4cCI6MjA3NTY3ODkwNX0.U1PxAxHJd6sAdQkHXZiTWYN0lbb33xJPRDK2ALjzO-Q";
+const STORAGE_BUCKET = "kisuka_culture";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ====== Settings ====== */
@@ -10,6 +11,7 @@ const WHATSAPP_NUMBER = '60123456789'; // Gantikan dengan nombor WhatsApp sebena
 const $  = (s, r=document)=>r.querySelector(s);
 const $$ = (s, r=document)=>[...r.querySelectorAll(s)];
 const money = n => "RM" + (Number(n)||0).toFixed(2);
+const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
 const firstImageOf = (p) => { const arr = normalizeImages(p?.image_urls); return (arr && arr.length) ? arr[0] : "https://placehold.co/600x600?text=Produk"; };
 const normalizeImages = (val) => { if (Array.isArray(val)) return val; if (typeof val === "string") { try { const arr = JSON.parse(val); return Array.isArray(arr) ? arr : []; } catch { return []; } } return []; };
@@ -45,7 +47,62 @@ function initTheme() {
     applyTheme(savedTheme || (systemPrefersDark ? 'dark' : 'light'));
 }
 
-/* ====== DATA FETCHING ====== */
+/* ====== AUTH & ROUTING ====== */
+async function handleAdminAccess(){
+  const { data: { user } } = await supabase.auth.getUser();
+  const isAdmin = !!user && user.user_metadata?.role === "admin";
+  const adminPanel = $("#admin-panel");
+  
+  if(isAdmin){
+      adminPanel.classList.remove('hidden');
+      renderAdmin();
+  } else {
+      adminPanel.classList.add('hidden');
+  }
+  renderAuthArea(user, isAdmin);
+}
+function renderAuthArea(user, isAdmin){
+  const area = $("#auth-area"); if (!area) return;
+  if(isAdmin){
+      area.innerHTML = ''; // Hide login form if logged in
+  } else {
+    area.innerHTML = `
+      <div class="max-w-md mx-auto bg-white dark:bg-gray-800 p-6 rounded-lg border dark:border-gray-700">
+        <h2 class="text-xl font-bold text-center text-gray-900 dark:text-white mb-4">Log Masuk Admin</h2>
+        <form id="login-form" class="space-y-4">
+            <input type="email" id="login-email" placeholder="admin@email.com" class="form-input" required>
+            <input type="password" id="login-pass" placeholder="kata laluan" class="form-input" required>
+            <button class="btn-primary w-full">Log Masuk</button>
+        </form>
+      </div>`;
+    $("#login-form")?.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const { error } = await supabase.auth.signInWithPassword({ email: $("#login-email").value.trim(), password: $("#login-pass").value });
+      if (error) return showToast(error.message, 'error');
+      showToast("Berjaya log masuk");
+      handleAdminAccess();
+    });
+  }
+}
+function handleHashChange() {
+    if (window.location.hash === '#admin') {
+        switchView('admin');
+    } else if ($('#admin-view')?.classList.contains('active')) {
+        switchView('home');
+    }
+}
+
+/* ====== DATA FETCHING & MUTATION ====== */
+async function fetchSettings() {
+    const { data, error } = await supabase.from('settings').select('key, value');
+    if (error) { console.error("Error fetching settings:", error); return {}; }
+    const settings = data.reduce((acc, { key, value }) => ({ ...acc, [key]: value }), {});
+    
+    if (settings.hero_image_url) {
+        $("#hero-img")?.setAttribute('src', settings.hero_image_url);
+        $("#hero-preview")?.setAttribute('src', settings.hero_image_url);
+    }
+}
 async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
   let query = supabase.from('products').select('*', { count: 'exact' });
   if (ids) { query = query.in('id', ids); } 
@@ -67,8 +124,37 @@ async function fetchCategories() {
     ALL_CATEGORIES = data || [];
     return ALL_CATEGORIES;
 }
+async function deleteProduct(id){
+  const { error } = await supabase.from('products').delete().eq('id', id); if (error) throw error;
+}
+async function createOrUpdateProduct(record, files){
+    let existingImages = JSON.parse(record.image_urls || "[]");
+    const newImageUrls = [];
+    if (files && files.length > 0) {
+        const uploadPromises = [...files].map(file => {
+            const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${file.name.split('.').pop()}`;
+            return supabase.storage.from(STORAGE_BUCKET).upload(path, file);
+        });
+        const uploadResults = await Promise.all(uploadPromises);
+        for (const result of uploadResults) {
+            if (result.error) throw result.error;
+            const { data: pub } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(result.data.path);
+            newImageUrls.push(pub.publicUrl);
+        }
+    }
+    const finalImageUrls = [...newImageUrls, ...existingImages];
+    const payload = {
+        name: record.name, description: record.description, price: Number(record.price),
+        category: record.category, stock: Number(record.stock), image_urls: finalImageUrls
+    };
+    const { error } = record.id
+        ? await supabase.from('products').update(payload).eq('id', record.id)
+        : await supabase.from('products').insert(payload);
+    if (error) throw error;
+}
 
 /* ====== RENDER FUNCTIONS ====== */
+// (Customer-facing render functions remain largely the same)
 const productBadge = p => {
     if (p.stock === 0) return '<span class="badge-stock badge-stock-out">HABIS</span>';
     if (p.stock < 5) return '<span class="badge-stock badge-stock-low">STOK TERHAD</span>';
@@ -227,7 +313,8 @@ function togglePanel(id, forceOpen=null){
   overlay.classList.toggle('hidden', !willOpen);
   if (willOpen) {
     document.body.style.overflow = 'hidden';
-    el.style.transform = (el.id === 'search-modal') ? 'translateY(0)' : 'translateX(0)';
+    if(el.classList.contains('modal')) el.classList.add('show');
+    else el.style.transform = (el.id === 'search-modal') ? 'translateY(0)' : 'translateX(0)';
   } else {
     document.body.style.overflow = '';
     closeAllPanels();
@@ -238,18 +325,91 @@ function closeAllPanels(){
   $("#overlay").classList.add('hidden');
   $("#cart-panel").style.transform='translateX(100%)';
   $("#search-modal").style.transform='translateY(-100%)';
+  $$(".modal").forEach(m => m.classList.remove('show'));
 }
 async function switchView(view){
   $$('.view').forEach(v=>v.classList.remove('active'));
   $(`#${view}-view`)?.classList.add('active');
-  window.scrollTo({ top:0, behavior:'smooth' });
+  $('#bottom-nav').style.display = view === 'admin' ? 'none' : 'flex';
+  
+  if (view !== 'admin') {
+      window.scrollTo({ top:0, behavior:'smooth' });
+      $$('.nav-bottom').forEach(b => b.classList.remove('active'));
+      $(`.nav-bottom[data-view="${view}"]`)?.classList.add('active');
+  }
 
-  $$('.nav-bottom').forEach(b => b.classList.remove('active'));
-  $(`.nav-bottom[data-view="${view}"]`)?.classList.add('active');
-
+  if (view === 'admin') await handleAdminAccess();
   if (['home', 'all-products'].includes(view)) await loadPage();
   if (view === 'wishlist') await renderWishlist();
 }
+
+
+/* ====== ADMIN LOGIC ====== */
+async function renderAdminCategories() {
+    await fetchCategories();
+    const list = $("#category-list");
+    if (!list) return;
+    list.innerHTML = ALL_CATEGORIES.map(cat => `
+        <div class="flex items-center justify-between p-3 dark:border-gray-700">
+            <span class="text-sm text-gray-800 dark:text-gray-200">${cat.name}</span>
+            <button data-action="delete-category" data-id="${cat.id}" class="btn-icon text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50">
+                <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
+            </button>
+        </div>
+    `).join('') || '<p class="p-4 text-center text-gray-500">Tiada kategori.</p>';
+    iconify();
+}
+async function renderAdmin(){
+  const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: 100 });
+  const pList = $("#admin-product-list");
+  if(pList) pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
+    ${adminProducts.map(p => `<div class="p-3 flex items-center justify-between gap-3">
+        <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stok: ${p.stock}</p></div>
+        <div class="flex-shrink-0"><button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button><button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Padam</button></div>
+    </div>`).join('') || '<p class="p-4 text-center text-gray-500">Tiada produk.</p>'}
+  </div>`;
+  await renderAdminCategories();
+}
+function renderImagePreviews(images, container) {
+    container.innerHTML = images.map((url) => `
+        <div class="relative group w-20 h-20">
+            <img src="${url}" class="w-full h-full object-cover rounded-md border border-gray-300 dark:border-gray-600">
+            <button type="button" data-url="${url}" class="absolute top-0 right-0 m-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Remove image">
+                <i data-lucide="x" class="w-3 h-3 pointer-events-none"></i>
+            </button>
+        </div>
+    `).join('');
+    iconify();
+}
+async function openProductForm(id = null) {
+    const form = $("#product-form"); if (!form) return;
+    form.reset();
+    $("#product-id").value = "";
+    $("#product-existing-images").value = "[]";
+    const previewContainer = $("#product-images-preview");
+    previewContainer.innerHTML = '';
+    
+    await fetchCategories();
+    const categoryInput = $("#product-category");
+    categoryInput.innerHTML = `<option value="">Pilih Kategori</option>` + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+    const {rows} = await fetchProductsServer({ids: id ? [id] : []});
+    const p = rows[0];
+
+    if (p) {
+        $("#product-form-title").textContent = 'Kemas Kini Produk';
+        $("#product-id").value = p.id; $("#product-name").value = p.name; $("#product-price").value = p.price;
+        $("#product-stock").value = p.stock; $("#product-category").value = p.category || '';
+        $("#product-description").value = p.description || '';
+        const existingImages = normalizeImages(p.image_urls);
+        $("#product-existing-images").value = JSON.stringify(existingImages);
+        renderImagePreviews(existingImages, previewContainer);
+    } else {
+        $("#product-form-title").textContent = 'Tambah Produk Baharu';
+    }
+    togglePanel('product-form-modal', true);
+}
+
 
 /* ====== PAGE LOAD & INIT ====== */
 async function loadPage(){
@@ -266,11 +426,12 @@ async function loadPage(){
 }
 document.addEventListener('DOMContentLoaded', async ()=>{
   initTheme();
-  iconify();
-  await loadPage();
+  await Promise.all([fetchSettings(), loadPage()]);
   renderCart();
-  switchView('home');
-
+  handleHashChange();
+  window.addEventListener('hashchange', handleHashChange);
+  iconify();
+  
   /* ====== GLOBAL CLICK HANDLER ====== */
   document.body.addEventListener('click', async (e)=>{
     const nav = e.target.closest('.nav-link');
@@ -298,21 +459,32 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         actionBtn.querySelector('i').classList.toggle('fill-red-500', wishlist.includes(id));
         if ($("#wishlist-view")?.classList.contains('active')) await renderWishlist();
       }
+      if (action==='edit-product') openProductForm(id);
+      if (action==='delete-product'){
+        if (!confirm("Padam produk ini?")) return;
+        try { await deleteProduct(id); showToast('Produk dipadam'); await renderAdmin(); await loadPage(); }
+        catch(err) { showToast(err.message||'Gagal padam','error'); }
+      }
+      if (action==='delete-category') {
+          if (!confirm("Padam kategori ini?")) return;
+          try {
+              const { error } = await supabase.from('categories').delete().eq('id', id);
+              if (error) throw error;
+              showToast('Kategori dipadam'); await renderAdminCategories();
+          } catch(err) { showToast(err.message || 'Gagal padam', 'error'); }
+      }
     }
 
     if (e.target.closest('#cart-btn') || e.target.closest('#mobile-cart-btn')) togglePanel('cart-panel', true);
     if (e.target.closest('#search-btn')){ togglePanel('search-modal', true); $("#search-input")?.focus(); }
-    if (e.target.id === 'overlay' || e.target.closest('[id^=close-]')) closeAllPanels();
+    if (e.target.id === 'overlay' || e.target.closest('#close-search-btn') || e.target.closest('#close-cart-btn') || e.target.closest('#cancel-product-form-btn')) closeAllPanels();
     if (e.target.closest('#theme-btn')) applyTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark');
-
     if (e.target.closest('#whatsapp-btn')) {
         if (cart.length === 0) return showToast('Troli anda kosong!', 'error');
-        
         const itemsList = cart.map(item => `• ${item.quantity}x ${item.name} (${money(item.price * item.quantity)})`).join('\n');
         const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
         const message = `Assalamualaikum, saya berminat untuk menempah barang berikut:\n\n${itemsList}\n\n*Jumlah: ${money(total)}*\n\nBoleh sahkan ketersediaan stok? Terima kasih.`;
         const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
-        
         window.open(url, '_blank');
         closeAllPanels();
     }
@@ -323,4 +495,64 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ currentPage = 1; CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
   $("#sort-select")?.addEventListener('change', async e => { currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#pagination")?.addEventListener('click', async e => { const b = e.target.closest('button[data-page]'); if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); } });
+
+  /* ====== ADMIN HANDLERS ====== */
+  $("#logout-btn")?.addEventListener("click", async ()=>{
+      await supabase.auth.signOut(); 
+      showToast("Log keluar"); 
+      handleAdminAccess();
+  });
+  $("#admin-tabs")?.addEventListener('click', e => {
+    const btn = e.target.closest('.admin-tab'); if (!btn) return;
+    $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
+    $$('.admin-tab-content').forEach(c => c.classList.add('hidden')); $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
+  });
+  $("#add-product-btn")?.addEventListener("click", () => openProductForm());
+  $("#add-category-btn")?.addEventListener('click', async () => {
+      const name = $("#new-category-name").value.trim();
+      if (!name) return showToast('Nama kategori diperlukan', 'error');
+      const { error } = await supabase.from('categories').insert({ name });
+      if (error) return showToast(error.message, 'error');
+      showToast('Kategori ditambah'); $("#new-category-name").value = '';
+      await renderAdminCategories();
+  });
+  $("#save-hero-btn")?.addEventListener('click', async () => {
+      const file = $("#hero-file")?.files?.[0];
+      if (!file) return showToast('Sila pilih fail gambar', 'error');
+      try {
+          const path = `settings/hero-banner.${file.name.split('.').pop()}`;
+          const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
+          if (uploadError) throw uploadError;
+          const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+          const { error: dbError } = await supabase.from('settings').upsert({ key: 'hero_image_url', value: publicUrl }, { onConflict: 'key' });
+          if (dbError) throw dbError;
+          showToast('Gambar hero disimpan');
+          await fetchSettings();
+      } catch (err) { showToast(err.message, 'error'); }
+  });
+  $('#product-images-preview')?.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (btn) {
+        const urlToRemove = btn.dataset.url;
+        const existingImagesInput = $("#product-existing-images");
+        let images = JSON.parse(existingImagesInput.value);
+        images = images.filter(url => url !== urlToRemove);
+        existingImagesInput.value = JSON.stringify(images);
+        btn.parentElement.remove();
+    }
+  });
+  $("#product-form")?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const record = {
+          id: $("#product-id").value, name: $("#product-name").value, price: $("#product-price").value,
+          stock: $("#product-stock").value, category: $("#product-category").value, description: $("#product-description").value,
+          image_urls: $("#product-existing-images").value
+      };
+      const files = $("#product-images-input").files;
+      try {
+          await createOrUpdateProduct(record, files);
+          showToast(`Produk ${record.id ? 'dikemaskini' : 'ditambah'}`);
+          closeAllPanels(); await renderAdmin(); await loadPage();
+      } catch (err) { showToast(err.message, 'error'); }
+  });
 });
