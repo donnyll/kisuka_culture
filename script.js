@@ -472,7 +472,54 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ currentPage = 1; CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
   $("#sort-select")?.addEventListener('change', async e => { currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#pagination")?.addEventListener('click', async e => { const b = e.target.closest('button[data-page]'); if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); } });
-  $("#checkout-btn")?.addEventListener('click', ()=>{ if (cart.length===0) return showToast('Troli anda kosong!', 'error'); togglePanel('checkout-modal', true); });
+  
+  // -- START: PAYMENT LOGIC (DIBAIKI) --
+  $("#checkout-btn")?.addEventListener('click', ()=>{ 
+    if (cart.length===0) return showToast('Troli anda kosong!', 'error');
+    // Paparkan butiran bank
+    const bankDetails = $("#bank-details");
+    if (bankDetails) {
+        bankDetails.innerHTML = `
+            <p><strong>Bank:</strong> ${BANK.name}</p>
+            <p><strong>No. Akaun:</strong> ${BANK.account}</p>
+            <p><strong>Nama Penerima:</strong> ${BANK.accountName}</p>
+        `;
+    }
+    togglePanel('checkout-modal', true); 
+  });
+  
+  $("#wa-btn")?.addEventListener('click', () => {
+      if (cart.length === 0) return showToast('Troli anda kosong!', 'error');
+      
+      const customerName = $("#co-name").value.trim();
+      const customerPhone = $("#co-phone").value.trim();
+      const customerAddress = $("#co-address").value.trim();
+      
+      if (!customerName || !customerPhone || !customerAddress) {
+          return showToast('Sila isi nama, telefon, dan alamat dahulu.', 'error');
+      }
+
+      let message = `Assalamualaikum, saya ingin membuat pesanan:\n\n`;
+      cart.forEach(item => {
+          message += `*${item.name}*\n`;
+          message += `${item.quantity} unit x ${money(item.price)} = ${money(item.quantity * item.price)}\n\n`;
+      });
+      message += `-------------------------\n`;
+      message += `Subtotal: ${money(cartSubtotal())}\n`;
+      message += `Penghantaran: ${money(shippingFee())}\n`;
+      message += `*Jumlah Pesanan: ${money(cartTotal())}*\n\n`;
+      message += `-------------------------\n`;
+      message += `*Maklumat Penerima:*\n`;
+      message += `Nama: ${customerName}\n`;
+      message += `Telefon: ${customerPhone}\n`;
+      message += `Alamat: ${customerAddress}\n\n`;
+      message += `Saya akan membuat pembayaran dan menghantar resit sebentar lagi. Terima kasih!`;
+      
+      const whatsappUrl = `https://wa.me/${BANK.whatsapp}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
+  });
+  // -- END: PAYMENT LOGIC --
+
   $("#shipping-method")?.addEventListener('change', e=>{ shipping=e.target.value; localStorage.setItem(KEYS.SHIPPING, shipping); renderCart(); });
   $("#apply-coupon-btn")?.addEventListener('click', ()=>{
     const code = $("#coupon-input")?.value.trim().toUpperCase(); let applied=null;
@@ -535,27 +582,38 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   /* ====== FORM SUBMISSIONS ====== */
   $("#checkout-form")?.addEventListener('submit', async e => {
     e.preventDefault();
+    const receiptFile = $("#co-receipt")?.files?.[0];
+    if (!receiptFile) {
+        return showToast('Sila muat naik resit pembayaran.', 'error');
+    }
+
     const order = {
       id: uid().toUpperCase(), date: new Date().toISOString(),
       items: cart.map(i=>({ id:i.id, name:i.name, price:i.price, qty:i.quantity })),
       subtotal: cartSubtotal(), shipping, shippingFee: shippingFee(), total: cartTotal(), status: 'Pending',
-      address: { name: $("#co-name").value, phone: $("#co-phone").value, address: $("#co-address").value },
-      payment_method: $("#co-payment").value, receipt_url: null
+      address: { name: $("#co-name").value, phone: $("#co-phone").value, address: $("#co-address").value, note: $("#co-note").value },
+      payment_method: 'Bank Transfer', receipt_url: null
     };
+
     try {
-      const receiptFile = $("#co-receipt")?.files?.[0];
-      if (receiptFile) {
-        const path = `receipts/${order.id}.${receiptFile.name.split('.').pop()}`;
-        const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, receiptFile);
-        if (upErr) throw upErr;
-        const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-        order.receipt_url = publicUrl;
-      }
+      const path = `receipts/${order.id}.${receiptFile.name.split('.').pop()}`;
+      const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, receiptFile);
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+      order.receipt_url = publicUrl;
+      
       const stockUpdates = cart.map(it => supabase.from('products').update({ stock: it.stock - it.quantity }).eq('id', it.id));
       await Promise.all([...stockUpdates, createOrder(order)]);
+      
       cart = []; localStorage.removeItem(KEYS.CART); coupon = null; localStorage.removeItem(KEYS.COUPON);
-      renderCart(); togglePanel('checkout-modal', false); showToast('Pesanan dihantar!'); showReceipt(order); await loadPage();
-    } catch(err) { showToast(err.message||'Ralat semasa menghantar pesanan','error'); }
+      renderCart(); 
+      togglePanel('checkout-modal', false); 
+      showToast('Pesanan telah berjaya dihantar!'); 
+      showReceipt(order); 
+      await loadPage();
+    } catch(err) { 
+      showToast(err.message||'Ralat semasa menghantar pesanan','error'); 
+    }
   });
 
   $("#product-form")?.addEventListener('submit', async (e) => {
