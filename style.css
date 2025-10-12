@@ -22,12 +22,14 @@ body {
 /* Views & Navigation */
 .view { display: none }
 .view.active { display: block }
+#bottom-nav > div {
+    width: 100%; /* FIX: Ensure flex container takes full width */
+}
 .nav-bottom {
   display: flex;
   flex-direction: column;
   align-items: center;
   color: #6b7280;
-  flex: 1; /* FIX: Ensure items take up equal space */
 }
 html.dark .nav-bottom { color: #9ca3af; }
 .nav-bottom.active { color: var(--brand); }
