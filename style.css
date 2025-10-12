@@ -8,7 +8,7 @@
   --border-color: #e5e7eb; /* Gray-200 */
 }
 html.dark {
-  --bg-light: #111827; /* Gray-900 */
+  --bg-light: #000000; /* Gray-900 */
   --bg-panel-light: #1f2937; /* Gray-800 */
   --text-dark: #f9fafb; /* Gray-50 */
   --text-light: #9ca3af; /* Gray-400 */
