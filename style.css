@@ -9,7 +9,7 @@
 }
 html.dark {
   --bg-light: #000000; /* Gray-900 */
-  --bg-panel-light: #1f2937; /* Gray-800 */
+  --bg-panel-light: #000000; /* Gray-800 */
   --text-dark: #f9fafb; /* Gray-50 */
   --text-light: #9ca3af; /* Gray-400 */
   --border-color: #374151; /* Gray-700 */
