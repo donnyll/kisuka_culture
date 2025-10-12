@@ -5,7 +5,12 @@ const STORAGE_BUCKET = "kisuka_culture";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ====== Settings ====== */
-const WHATSAPP_NUMBER = '60123456789'; // Gantikan dengan nombor WhatsApp sebenar anda
+const WHATSAPP_NUMBER = '60123456789'; // Gantikan dengan nombor WhatsApp sebenar
+const BANK_DETAILS = {
+    name: "Maybank",
+    account: "123456789012",
+    holder: "Kisuka Culture Enterprise"
+};
 
 /* ====== Helpers ====== */
 const $  = (s, r=document)=>r.querySelector(s);
@@ -152,6 +157,11 @@ async function createOrUpdateProduct(record, files){
         : await supabase.from('products').insert(payload);
     if (error) throw error;
 }
+async function createOrder(order) {
+    const { error } = await supabase.from('orders').insert(order);
+    if (error) throw error;
+}
+
 
 /* ====== RENDER FUNCTIONS ====== */
 const productBadge = p => {
@@ -275,7 +285,8 @@ async function renderWishlist() {
   renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
 }
 
-/* ====== CART LOGIC ====== */
+/* ====== CART & PAYMENT LOGIC ====== */
+const cartTotal = () => cart.reduce((s,i)=> s + i.price*i.quantity, 0);
 function renderCart(){
   const box = $("#cart-items");
   if (box){
@@ -301,6 +312,7 @@ function renderCart(){
   $("#cart-count").textContent = cartItems;
   $("#mobile-cart-count").textContent = cartItems;
   $("#wishlist-count").textContent = wishlist.length;
+  $("#cart-total").textContent = money(cartTotal());
   localStorage.setItem(KEYS.CART, JSON.stringify(cart));
   iconify();
 }
@@ -327,6 +339,73 @@ async function updateQuantity(id, d){
   if (q > p.stock) return showToast(`Stok ${p.name} tidak mencukupi!`,'error');
   it.quantity=q; renderCart();
 }
+function goToPayment() {
+    if (cart.length === 0) {
+        showToast('Troli anda kosong!', 'error');
+        return;
+    }
+    $("#bank-name").textContent = BANK_DETAILS.name;
+    $("#bank-account").textContent = BANK_DETAILS.account;
+    $("#bank-holder").textContent = BANK_DETAILS.holder;
+    $("#payment-total").textContent = money(cartTotal());
+    switchView('payment');
+    closeAllPanels();
+}
+async function handleOrderSubmit(e) {
+    e.preventDefault();
+    const btn = $('#submit-payment-btn');
+    btn.disabled = true;
+    btn.textContent = 'Memproses...';
+
+    const formData = new FormData(e.target);
+    const customer_details = Object.fromEntries(formData.entries());
+    const receiptFile = customer_details.receipt;
+    delete customer_details.receipt;
+
+    try {
+        if (!receiptFile || receiptFile.size === 0) throw new Error("Sila muat naik resit pembayaran.");
+        
+        // 1. Upload receipt
+        const receiptPath = `receipts/${uid()}-${receiptFile.name}`;
+        const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(receiptPath, receiptFile);
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl: receipt_url } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(receiptPath);
+
+        // 2. Prepare order data
+        const order = {
+            id: uid().toUpperCase(),
+            customer_details,
+            items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+            total: cartTotal(),
+            status: 'Pending',
+            receipt_url
+        };
+        
+        // 3. Save order to DB
+        await createOrder(order);
+
+        // 4. Update stock
+        const stockUpdates = cart.map(item =>
+            supabase.from('products').update({ stock: item.stock - item.quantity }).eq('id', item.id)
+        );
+        await Promise.all(stockUpdates);
+
+        // 5. Cleanup and confirmation
+        cart = [];
+        localStorage.removeItem(KEYS.CART);
+        renderCart();
+        showToast('Pesanan anda telah berjaya dihantar!');
+        switchView('home');
+
+    } catch (err) {
+        showToast(err.message || 'Gagal menghantar pesanan.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sahkan & Hantar';
+    }
+}
+
 
 /* ====== UI/PANEL/VIEW LOGIC ====== */
 function togglePanel(id, forceOpen=null){
@@ -354,9 +433,9 @@ function closeAllPanels(){
 async function switchView(view){
   $$('.view').forEach(v=>v.classList.remove('active'));
   $(`#${view}-view`)?.classList.add('active');
-  $('#bottom-nav').style.display = view === 'admin' ? 'none' : 'flex';
+  $('#bottom-nav').style.display = ['admin', 'payment'].includes(view) ? 'none' : 'flex';
   
-  if (view !== 'admin') {
+  if (!['admin', 'payment'].includes(view)) {
       window.scrollTo({ top:0, behavior:'smooth' });
       $$('.nav-bottom').forEach(b => b.classList.remove('active'));
       $(`.nav-bottom[data-view="${view}"]`)?.classList.add('active');
@@ -383,17 +462,108 @@ async function renderAdminCategories() {
     `).join('') || '<p class="p-4 text-center text-gray-500">Tiada kategori.</p>';
     iconify();
 }
-async function renderAdmin(){
-  const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: 100 });
-  const pList = $("#admin-product-list");
-  if(pList) pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
-    ${adminProducts.map(p => `<div class="p-3 flex items-center justify-between gap-3">
-        <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stok: ${p.stock}</p></div>
-        <div class="flex-shrink-0"><button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button><button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Padam</button></div>
-    </div>`).join('') || '<p class="p-4 text-center text-gray-500">Tiada produk.</p>'}
-  </div>`;
-  await renderAdminCategories();
+async function renderAdminOrders() {
+    const list = $("#admin-order-list");
+    if (!list) return;
+    list.innerHTML = `<p class="p-4 text-center text-gray-500">Memuatkan pesanan...</p>`;
+    
+    const { data: orders, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+
+    if (error) {
+        list.innerHTML = `<p class="p-4 text-center text-red-500">Gagal memuatkan pesanan.</p>`;
+        return;
+    }
+    
+    if (orders.length === 0) {
+        list.innerHTML = `<p class="p-4 text-center text-gray-500">Tiada pesanan lagi.</p>`;
+        return;
+    }
+
+    list.innerHTML = `<div class="space-y-3">` + orders.map(o => `
+        <div class="order-card">
+            <div>
+                <p class="font-bold text-gray-900 dark:text-white">${o.customer_details.name}</p>
+                <p class="text-xs text-gray-500">#${o.id.slice(-6)} • ${new Date(o.created_at).toLocaleString()}</p>
+            </div>
+            <div class="text-right">
+                <p class="font-semibold text-gray-800 dark:text-gray-200">${money(o.total)}</p>
+                <p class="text-xs font-medium ${o.status === 'Shipped' ? 'text-green-500' : 'text-yellow-500'}">${o.status}</p>
+            </div>
+            <button data-action="view-order" data-id="${o.id}" class="btn-light !py-1 !px-3 text-xs">Lihat</button>
+        </div>
+    `).join('') + `</div>`;
 }
+async function showOrderDetailModal(id) {
+    const { data: order, error } = await supabase.from('orders').select('*').eq('id', id).single();
+    if (error || !order) return showToast('Gagal mendapatkan butiran pesanan.', 'error');
+
+    const content = $('#order-detail-content');
+    content.innerHTML = `
+        <div class="flex justify-between items-start">
+            <div>
+                <h3 class="text-xl font-bold text-gray-900 dark:text-white">Pesanan #${order.id.slice(-6)}</h3>
+                <p class="text-sm text-gray-500">${new Date(order.created_at).toLocaleString()}</p>
+            </div>
+            <button data-action="close-modal" class="btn-icon"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="mt-4 border-t dark:border-gray-700 pt-4 space-y-3">
+            <div>
+                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Butiran Pelanggan</h4>
+                <div class="text-sm text-gray-600 dark:text-gray-300 space-y-1">
+                    <p><strong>Nama:</strong> ${order.customer_details.name}</p>
+                    <p><strong>Emel:</strong> ${order.customer_details.email}</p>
+                    <p><strong>Telefon:</strong> ${order.customer_details.phone}</p>
+                    <p><strong>Alamat:</strong> ${order.customer_details.address}</p>
+                    ${order.customer_details.note ? `<p><strong>Nota:</strong> ${order.customer_details.note}</p>` : ''}
+                </div>
+            </div>
+            <div>
+                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Item Dipesan</h4>
+                <ul class="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 space-y-1">
+                    ${order.items.map(item => `<li>${item.quantity}x ${item.name} - ${money(item.price * item.quantity)}</li>`).join('')}
+                </ul>
+                <p class="font-bold text-right mt-2 text-gray-800 dark:text-gray-200">Jumlah: ${money(order.total)}</p>
+            </div>
+            <div>
+                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-2">Resit Pembayaran</h4>
+                <a href="${order.receipt_url}" target="_blank">
+                    <img src="${order.receipt_url}" class="w-full max-w-xs mx-auto rounded-md border dark:border-gray-600 cursor-pointer hover:opacity-80 transition-opacity">
+                </a>
+            </div>
+            <div class="flex items-center gap-2 pt-4 border-t dark:border-gray-700">
+                <label class="text-sm font-medium">Status:</label>
+                <select id="order-status-select" data-id="${order.id}" class="form-input flex-grow">
+                    ${['Pending', 'Processing', 'Shipped', 'Completed', 'Cancelled'].map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+    `;
+    iconify();
+    togglePanel('order-detail-modal', true);
+}
+async function updateOrderStatus(id, status) {
+    const { error } = await supabase.from('orders').update({ status }).eq('id', id);
+    if (error) {
+        showToast('Gagal kemas kini status.', 'error');
+    } else {
+        showToast('Status pesanan dikemas kini!');
+        renderAdminOrders();
+    }
+}
+async function renderAdmin(){
+  const pList = $("#admin-product-list");
+  if(pList) {
+    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: 100 });
+    pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
+      ${adminProducts.map(p => `<div class="p-3 flex items-center justify-between gap-3">
+          <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stok: ${p.stock}</p></div>
+          <div class="flex-shrink-0"><button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button><button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Padam</button></div>
+      </div>`).join('') || '<p class="p-4 text-center text-gray-500">Tiada produk.</p>'}
+    </div>`;
+  }
+  await Promise.all([renderAdminCategories(), renderAdminOrders()]);
+}
+
 function renderImagePreviews(images, container) {
     container.innerHTML = images.map((url) => `
         <div class="relative group w-20 h-20">
@@ -470,6 +640,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         switchView('product-detail'); 
         renderProductDetail(actionBtn.dataset.id); 
     }
+    if (actionBtn?.dataset.action === 'back-to-cart') { 
+        switchView('home'); // or switch to the last view
+        togglePanel('cart-panel', true);
+    }
 
     if (actionBtn){
       const { action, id } = actionBtn.dataset;
@@ -477,7 +651,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if (id) {
           p = ALL_PRODUCTS.find(x => String(x.id) === String(id));
           if (!p) {
-              const { data } = await supabase.from('products').select('stock, name').eq('id', id).single();
+              const { data } = await supabase.from('products').select('*').eq('id', id).single();
               p = data;
           }
       }
@@ -508,12 +682,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
               showToast('Kategori dipadam'); await renderAdminCategories();
           } catch(err) { showToast(err.message || 'Gagal padam', 'error'); }
       }
+      if (action==='view-order') showOrderDetailModal(id);
+      if (action==='close-modal') closeAllPanels();
     }
 
     if (e.target.closest('#cart-btn') || e.target.closest('#mobile-cart-btn')) togglePanel('cart-panel', true);
     if (e.target.closest('#search-btn')){ togglePanel('search-modal', true); $("#search-input")?.focus(); }
     if (e.target.id === 'overlay' || e.target.closest('#close-search-btn') || e.target.closest('#close-cart-btn') || e.target.closest('#cancel-product-form-btn')) closeAllPanels();
     if (e.target.closest('#theme-btn')) applyTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark');
+    if (e.target.closest('#checkout-btn')) goToPayment();
     if (e.target.closest('#whatsapp-btn')) {
         if (cart.length === 0) return showToast('Troli anda kosong!', 'error');
         const itemsList = cart.map(item => `• ${item.quantity}x ${item.name} (${money(item.price * item.quantity)})`).join('\n');
@@ -530,6 +707,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ currentPage = 1; CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
   $("#sort-select")?.addEventListener('change', async e => { currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#pagination")?.addEventListener('click', async e => { const b = e.target.closest('button[data-page]'); if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); } });
+  $("#payment-form")?.addEventListener('submit', handleOrderSubmit);
+  document.body.addEventListener('change', e => {
+    if (e.target.id === 'order-status-select') {
+        updateOrderStatus(e.target.dataset.id, e.target.value);
+    }
+  });
+
 
   /* ====== ADMIN HANDLERS ====== */
   $("#logout-btn")?.addEventListener("click", async ()=>{
@@ -541,6 +725,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const btn = e.target.closest('.admin-tab'); if (!btn) return;
     $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
     $$('.admin-tab-content').forEach(c => c.classList.add('hidden')); $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
+    if (btn.dataset.tab === 'orders') renderAdminOrders();
   });
   $("#add-product-btn")?.addEventListener("click", () => openProductForm());
   $("#add-category-btn")?.addEventListener('click', async () => {

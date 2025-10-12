@@ -88,56 +88,70 @@
 
       <!-- Product Detail View -->
       <div id="product-detail-view" class="view"></div>
-      
-      <!-- Admin View -->
-      <div id="admin-view" class="view">
-        <section class="max-w-7xl mx-auto p-4">
-            <div id="auth-area" class="mb-6"></div>
-            <div id="admin-panel" class="hidden">
-                <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-                    <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Panel Pentadbir</h2>
-                    <button id="logout-btn" class="btn-light !py-2 !px-3">Log Keluar</button>
-                </div>
-                <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
-                    <nav id="admin-tabs" class="flex gap-4 -mb-px" aria-label="Tabs">
-                      <button data-tab="products" class="admin-tab active">Produk</button>
-                      <button data-tab="categories" class="admin-tab">Kategori</button>
-                      <button data-tab="settings" class="admin-tab">Tetapan</button>
-                    </nav>
-                </div>
-                <!-- Admin Products Content -->
-                <div id="admin-products-content" class="admin-tab-content">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-bold">Urus Produk</h3>
-                        <button id="add-product-btn" class="btn-primary"><i data-lucide="plus" class="w-4 h-4 mr-2"></i>Tambah</button>
-                    </div>
-                    <div id="admin-product-list" class="overflow-x-auto"></div>
-                </div>
-                <!-- Admin Categories Content -->
-                <div id="admin-categories-content" class="admin-tab-content hidden">
-                    <div class="flex flex-col sm:flex-row gap-2 mb-4">
-                        <input id="new-category-name" class="form-input flex-grow" placeholder="Nama kategori baharu" />
-                        <button id="add-category-btn" class="btn-primary">Tambah Kategori</button>
-                    </div>
-                    <div id="category-list" class="bg-white dark:bg-gray-800 border rounded-lg divide-y"></div>
-                </div>
-                <!-- Admin Settings Content -->
-                <div id="admin-settings-content" class="admin-tab-content hidden">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border p-4">
-                        <h3 class="font-bold text-gray-900 dark:text-white mb-3">Hero Banner</h3>
-                        <div class="flex flex-col gap-4">
-                            <img id="hero-preview" src="https://placehold.co/600x300?text=Hero+Image" class="w-full h-48 object-cover rounded border">
-                            <div class="space-y-2">
-                                <input id="hero-file" type="file" accept="image/*" class="form-file">
-                                <button id="save-hero-btn" class="btn-primary w-full">Simpan Gambar Hero</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+
+      <!-- Payment View -->
+      <div id="payment-view" class="view">
+        <section class="max-w-xl mx-auto p-4">
+          <a href="#" data-action="back-to-cart" class="text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline"><i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali ke Troli</a>
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">Pembayaran</h2>
+          
+          <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border dark:border-gray-700 mb-6">
+            <h3 class="font-bold text-gray-900 dark:text-white mb-3">Butiran Akaun Bank</h3>
+            <div class="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                <div class="flex justify-between"><span>Bank:</span><strong id="bank-name"></strong></div>
+                <div class="flex justify-between"><span>No. Akaun:</span><strong id="bank-account"></strong></div>
+                <div class="flex justify-between"><span>Nama Penerima:</span><strong id="bank-holder"></strong></div>
             </div>
+            <p class="text-xs text-gray-500 mt-4">Sila buat pembayaran ke akaun di atas dan muat naik resit di bawah.</p>
+          </div>
+
+          <form id="payment-form" class="space-y-4">
+            <h3 class="font-bold text-gray-900 dark:text-white">Maklumat Anda</h3>
+            <div><label class="form-label"><span>Nama Penuh</span><input name="name" class="form-input" required /></label></div>
+            <div><label class="form-label"><span>Emel</span><input name="email" type="email" class="form-input" required /></label></div>
+            <div><label class="form-label"><span>Nombor Telefon</span><input name="phone" class="form-input" required /></label></div>
+            <div><label class="form-label"><span>Alamat Penuh</span><textarea name="address" rows="3" class="form-input" required></textarea></label></div>
+            <div><label class="form-label"><span>Nota (Pilihan)</span><input name="note" class="form-input" placeholder="cth: Tinggalkan di pondok pengawal" /></label></div>
+            <div><label class="form-label"><span>Resit Pembayaran (Wajib)</span><input name="receipt" type="file" accept="image/*" class="form-file" required /></label></div>
+            
+            <div class="border-t dark:border-gray-700 pt-4 mt-4">
+                <div class="flex justify-between font-bold text-lg mb-4 text-gray-900 dark:text-white">
+                    <span>Jumlah Perlu Dibayar</span>
+                    <span id="payment-total">RM0.00</span>
+                </div>
+                <button type="submit" id="submit-payment-btn" class="btn-primary w-full">Sahkan & Hantar</button>
+            </div>
+          </form>
         </section>
       </div>
 
+      <!-- Admin View -->
+      <div id="admin-view" class="view">
+        <section class="max-w-7xl mx-auto p-4">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Panel Pentadbir</h2>
+                <button id="logout-btn" class="btn-light">Log Keluar</button>
+            </div>
+            
+            <div id="auth-area"></div>
+            
+            <div id="admin-panel" class="hidden">
+              <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
+                <nav id="admin-tabs" class="flex gap-4 -mb-px overflow-x-auto" aria-label="Tabs">
+                  <button data-tab="products" class="admin-tab active">Produk</button>
+                  <button data-tab="orders" class="admin-tab">Pesanan</button>
+                  <button data-tab="categories" class="admin-tab">Kategori</button>
+                  <button data-tab="settings" class="admin-tab">Tetapan</button>
+                </nav>
+              </div>
+
+              <div id="admin-products-content" class="admin-tab-content"><div class="flex items-center justify-end mb-4"><button id="add-product-btn" class="btn-primary">Tambah Produk</button></div><div id="admin-product-list"></div></div>
+              <div id="admin-orders-content" class="admin-tab-content hidden"><div id="admin-order-list"></div></div>
+              <div id="admin-categories-content" class="admin-tab-content hidden"><div class="flex items-center gap-2 mb-4"><input id="new-category-name" class="form-input" placeholder="Nama kategori baharu" /><button id="add-category-btn" class="btn-primary">Tambah</button></div><div id="category-list" class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700"></div></div>
+              <div id="admin-settings-content" class="admin-tab-content hidden"><div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4"><h3 class="font-bold text-gray-900 dark:text-white mb-3">Gambar Hero</h3><div class="flex flex-col sm:flex-row items-center gap-4"><img id="hero-preview" src="" class="w-48 h-24 object-cover rounded border dark:border-gray-700"><div class="space-y-2"><input id="hero-file" type="file" accept="image/*" class="form-file"><button id="save-hero-btn" class="btn-primary">Simpan</button></div></div></div></div>
+            </div>
+        </section>
+      </div>
     </main>
 
     <!-- Bottom Navigation (Mobile First) -->
@@ -154,56 +168,32 @@
     <div id="overlay" class="overlay"></div>
 
     <!-- Panels & Modals -->
-    <div id="search-modal" class="panel top p-4 bg-white dark:bg-gray-800 shadow-lg">
-      <div class="max-w-7xl mx-auto flex items-center gap-2">
-        <i data-lucide="search" class="w-5 h-5 text-gray-400"></i>
-        <input id="search-input" type="text" placeholder="Cari produk..." class="w-full p-2 bg-transparent focus:outline-none text-gray-900 dark:text-white">
-        <button id="close-search-btn" class="btn-icon" aria-label="Tutup cari"><i data-lucide="x" class="w-6 h-6 text-gray-700 dark:text-gray-300"></i></button>
-      </div>
-    </div>
+    <div id="search-modal" class="panel top p-4 bg-white dark:bg-gray-800 shadow-lg"><div class="max-w-7xl mx-auto flex items-center gap-2"><i data-lucide="search" class="w-5 h-5 text-gray-400"></i><input id="search-input" type="text" placeholder="Cari produk..." class="w-full p-2 bg-transparent focus:outline-none text-gray-900 dark:text-white"><button id="close-search-btn" class="btn-icon" aria-label="Tutup cari"><i data-lucide="x" class="w-6 h-6 text-gray-700 dark:text-gray-300"></i></button></div></div>
 
     <div id="cart-panel" class="panel right flex flex-col">
-      <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-        <h2 class="text-xl font-bold text-gray-900 dark:text-white">Troli Anda</h2>
-        <button id="close-cart-btn" class="btn-icon" aria-label="Tutup troli"><i data-lucide="x" class="text-gray-800 dark:text-gray-200"></i></button>
-      </div>
+      <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700"><h2 class="text-xl font-bold text-gray-900 dark:text-white">Troli Anda</h2><button id="close-cart-btn" class="btn-icon" aria-label="Tutup troli"><i data-lucide="x" class="text-gray-800 dark:text-gray-200"></i></button></div>
       <div id="cart-items" class="flex-grow p-4 overflow-y-auto"></div>
-      <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 space-y-3">
+        <div class="flex justify-between font-bold text-lg mb-2 text-gray-900 dark:text-white">
+            <span>Jumlah</span>
+            <span id="cart-total">RM0.00</span>
+        </div>
+        <button id="checkout-btn" class="w-full bg-cyan-600 text-white font-bold py-3 rounded-lg hover:bg-cyan-700 transition-colors flex items-center justify-center gap-2">
+          Bayar Sekarang
+        </button>
         <button id="whatsapp-btn" class="w-full bg-green-500 text-white font-bold py-3 rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
           <i data-lucide="send" class="w-4 h-4"></i>Hantar Pesanan via WhatsApp
         </button>
       </div>
     </div>
-
-    <div id="product-form-modal" class="modal">
-      <div class="modal-card max-w-lg">
-        <form id="product-form">
-          <h2 id="product-form-title" class="text-2xl font-bold mb-6 text-gray-900 dark:text-white">Tambah Produk</h2>
-          <input type="hidden" id="product-id" />
-          <div class="space-y-4">
-              <label class="form-label"><span>Nama Produk</span><input id="product-name" class="form-input" required /></label>
-              <div class="grid grid-cols-2 gap-4">
-                <label class="form-label"><span>Harga (RM)</span><input id="product-price" type="number" step="0.01" class="form-input" required /></label>
-                <label class="form-label"><span>Stok</span><input id="product-stock" type="number" class="form-input" required /></label>
-              </div>
-              <label class="form-label"><span>Kategori</span><select id="product-category" class="form-input" required></select></label>
-              <label class="form-label"><span>Penerangan</span><textarea id="product-description" rows="4" class="form-input" required></textarea></label>
-              <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Gambar Produk</label>
-                  <input id="product-images-input" type="file" accept="image/*" multiple class="form-file" />
-                  <p class="text-xs text-gray-500 mt-1">Gambar pertama akan menjadi gambar utama.</p>
-                  <div id="product-images-preview" class="flex flex-wrap gap-2 mt-2"></div>
-                  <input type="hidden" id="product-existing-images" value="[]">
-              </div>
-          </div>
-          <div class="flex justify-end gap-2 mt-5">
-              <button type="button" id="cancel-product-form-btn" class="btn-light">Batal</button>
-              <button class="btn-primary">Simpan</button>
-          </div>
-        </form>
-      </div>
-    </div>
     
+    <!-- Product Form Modal -->
+    <div id="product-form-modal" class="modal"><div class="modal-card max-w-lg"><form id="product-form"><h2 id="product-form-title" class="text-2xl font-bold mb-6 text-gray-900 dark:text-white">Tambah Produk Baharu</h2><input type="hidden" id="product-id" /><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><label class="form-label"><span>Nama Produk</span><input id="product-name" class="form-input" required /></label><label class="form-label"><span>Harga (RM)</span><input id="product-price" type="number" step="0.01" class="form-input" required /></label><label class="form-label"><span>Stok</span><input id="product-stock" type="number" class="form-input" required /></label><label class="form-label"><span>Kategori</span><select id="product-category" class="form-input" required></select></label></div><div class="mt-4"><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Gambar Produk</label><input id="product-images-input" type="file" accept="image/*" multiple class="form-file" /><p class="text-xs text-gray-500 mt-1">Anda boleh pilih banyak gambar.</p><div id="product-images-preview" class="flex flex-wrap gap-2 mt-2"></div><input type="hidden" id="product-existing-images" value="[]"></div><div class="mt-4"><label class="form-label"><span>Penerangan</span><textarea id="product-description" rows="4" class="form-input" required></textarea></label></div><div class="flex justify-end gap-2 mt-5"><button type="button" id="cancel-product-form-btn" class="btn-light">Batal</button><button class="btn-primary">Simpan</button></div></form></div></div>
+
+    <!-- Order Detail Modal (For Admin) -->
+    <div id="order-detail-modal" class="modal"><div id="order-detail-content" class="modal-card max-w-lg"></div></div>
+
+    <!-- Toast Notifications -->
     <div id="toast-container" class="fixed bottom-20 right-5 z-50"></div>
   </div>
 
@@ -211,3 +201,4 @@
   <script src="./script.js"></script>
 </body>
 </html>
+

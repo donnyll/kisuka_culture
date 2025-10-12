@@ -59,20 +59,31 @@ html.dark .badge-stock-out { background-color: #374151; color: #d1d5db; }
 .overlay:not(.hidden) { opacity: 1; pointer-events: auto; }
 .modal { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; padding: 1rem; background: rgba(0,0,0,.5); opacity: 0; transition: opacity 0.2s ease-in-out; }
 .modal.show { display: flex; opacity: 1; }
-.modal .modal-card { background: var(--bg-light); border-radius:.75rem; box-shadow:0 10px 30px rgba(0,0,0,.15); padding:1.5rem; width:100%; max-height:calc(100vh - 2rem); overflow:auto; transform: scale(0.95); transition: transform 0.2s ease-in-out; }
+.modal .modal-card { background: var(--bg-light); border-radius:.75rem; box-shadow:0 10px 30px rgba(0,0,0,.15); padding:1.5rem; width:100%; max-height:calc(100vh - 2rem); overflow-y:auto; transform: scale(0.95); transition: transform 0.2s ease-in-out; }
 .modal.show .modal-card { transform: scale(1); }
 
-/* Admin Tabs */
-.admin-tab { white-space: nowrap; padding: .75rem .25rem; border-bottom: 3px solid transparent; font-weight: 600; font-size: .9rem; color: var(--text-light); transition: all .2s; }
+/* Admin */
+.admin-tab { flex-shrink: 0; white-space: nowrap; padding: .75rem .25rem; border-bottom: 3px solid transparent; font-weight: 600; font-size: .9rem; color: var(--text-light); transition: all .2s; }
 .admin-tab:hover { color: var(--text-dark); }
 .admin-tab.active { border-color: var(--brand); color: var(--text-dark); }
+.order-card {
+    background-color: var(--bg-panel-light);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 1rem;
+    align-items: center;
+}
 
 /* Buttons & Forms */
 .btn-primary, .btn-light, .btn-icon { display:inline-flex; align-items:center; justify-content: center; font-weight:600; transition: all .2s; border-radius:.5rem; }
+.btn-primary:disabled { background-color: #9ca3af; cursor: not-allowed; }
 .btn-primary, .btn-light { padding: .625rem 1.25rem; }
 .btn-icon { padding: .5rem; }
 .btn-primary { background:#06b6d4; color:#fff; }
-.btn-primary:hover { background: #0891b2; }
+.btn-primary:hover:not(:disabled) { background: #0891b2; }
 .btn-light { background:var(--bg-light); color: var(--text-dark); border:1px solid var(--border-color); }
 .btn-light:hover { background-color: var(--bg-panel-light); }
 .form-input {
@@ -84,30 +95,15 @@ html.dark .form-input:focus { box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.3); }
 .form-label { display: block; }
 .form-label span { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; color: var(--text-dark); }
 .form-file {
-    display: block;
-    width: 100%;
-    font-size: 0.875rem;
-    color: var(--text-light);
+    display: block; width: 100%; font-size: 0.875rem; color: var(--text-light);
 }
 .form-file::file-selector-button {
-    margin-right: 1rem;
-    padding: 0.5rem 1rem;
-    border-radius: 9999px;
-    border-width: 0;
-    font-size: 0.875rem;
-    font-weight: 600;
-    background-color: #ecfeff;
-    color: #0e7490;
-    transition: background-color .2s;
-    cursor: pointer;
+    margin-right: 1rem; padding: 0.5rem 1rem; border-radius: 9999px; border-width: 0;
+    font-size: 0.875rem; font-weight: 600; background-color: #ecfeff; color: #0e7490;
+    transition: background-color .2s; cursor: pointer;
 }
-.form-file::file-selector-button:hover {
-    background-color: #cffafe;
-}
-html.dark .form-file::file-selector-button {
-    background-color: rgba(22, 78, 99, 0.5);
-    color: #67e8f9;
-}
+.form-file::file-selector-button:hover { background-color: #cffafe; }
+html.dark .form-file::file-selector-button { background-color: rgba(22, 78, 99, 0.5); color: #67e8f9; }
 
 
 /* Skeleton Loading */
