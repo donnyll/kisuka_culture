@@ -179,7 +179,8 @@ const productCard = p => {
           <i data-lucide="heart" class="w-4 h-4 transition-all ${isWishlisted ? 'text-red-500 fill-red-500' : 'text-gray-600 dark:text-gray-300'} pointer-events-none"></i>
         </button>
       </div>
-      <div class="relative"><img src="${firstImageOf(p)}" alt="${p.name}" class="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-300">
+      <div class="product-image-container group-hover:scale-105 transition-transform duration-300">
+        <img src="${firstImageOf(p)}" alt="${p.name}">
         ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
       </div>
     </div>
@@ -641,7 +642,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         renderProductDetail(actionBtn.dataset.id); 
     }
     if (actionBtn?.dataset.action === 'back-to-cart') { 
-        switchView('home'); // or switch to the last view
         togglePanel('cart-panel', true);
     }
 
