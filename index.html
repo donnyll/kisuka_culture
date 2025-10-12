@@ -38,7 +38,7 @@
         <a href="#" data-view="home" class="nav-link font-medium text-gray-600 dark:text-gray-300 hover:text-cyan-600 transition-colors">Utama</a>
         <a href="#" data-view="all-products" class="nav-link font-medium text-gray-600 dark:text-gray-300 hover:text-cyan-600 transition-colors">Semua Produk</a>
         <a href="#" data-view="wishlist" class="nav-link font-medium text-gray-600 dark:text-gray-300 hover:text-cyan-600 transition-colors">Wishlist</a>
-        <a href="#" data-view="admin" class="nav-link font-medium text-gray-600 dark:text-gray-300 hover:text-cyan-600 transition-colors" style="display:none;">Admin</a>
+        <a href="#" data-view="admin" class="nav-link font-medium text-gray-600 dark:text-gray-300 hover:text-cyan-600 transition-colors">Admin</a>
       </nav>
 
       <div class="flex items-center gap-1 md:gap-2">
@@ -155,7 +155,7 @@
     <div id="mobile-menu" class="panel left">
       <div class="p-6">
         <h2 class="text-xl font-bold text-cyan-600 mb-8">MENU</h2>
-        <nav class="flex flex-col gap-5"><a href="#" data-view="home" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600">Utama</a><a href="#" data-view="all-products" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600">Semua Produk</a><a href="#" data-view="wishlist" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600">Wishlist</a><a href="#" data-view="admin" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600" style="display:none;">Admin</a></nav>
+        <nav class="flex flex-col gap-5"><a href="#" data-view="home" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600">Utama</a><a href="#" data-view="all-products" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600">Semua Produk</a><a href="#" data-view="wishlist" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600">Wishlist</a><a href="#" data-view="admin" class="nav-link font-medium text-lg text-gray-700 dark:text-gray-200 hover:text-cyan-600">Admin</a></nav>
       </div>
     </div>
 
@@ -181,41 +181,16 @@
     <div id="checkout-modal" class="modal">
       <div class="modal-card">
         <h2 class="text-2xl font-bold mb-4 text-gray-900 dark:text-white">Maklumat Pembayaran</h2>
-        
-        <div id="bank-info" class="p-4 rounded-lg bg-cyan-50 dark:bg-cyan-900/50 border border-cyan-200 dark:border-cyan-800 mb-5">
-            <h3 class="font-bold text-cyan-800 dark:text-cyan-200 mb-2">Sila buat pembayaran ke akaun bank berikut:</h3>
-            <div id="bank-details" class="text-sm text-cyan-700 dark:text-cyan-300 space-y-1"></div>
-        </div>
-
         <form id="checkout-form" class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label class="form-label"><span>Nama Penuh</span><input id="co-name" class="form-input" required></label>
-              <label class="form-label"><span>No. Telefon (WhatsApp)</span><input id="co-phone" class="form-input" required></label>
-            </div>
-            <label class="form-label"><span>Alamat Penuh</span><textarea id="co-address" rows="3" class="form-input" required></textarea></label>
-            <label class="form-label"><span>Nota (Pilihan)</span><input id="co-note" class="form-input" placeholder="Cth: Tinggalkan di pondok pengawal"></label>
-            
-            <label class="form-label">
-              <span>Muat Naik Resit Pembayaran</span>
-              <input id="co-receipt" type="file" accept="image/*" class="text-sm w-full text-gray-600 dark:text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-50 dark:file:bg-cyan-900/50 file:text-cyan-700 dark:file:text-cyan-300 hover:file:bg-cyan-100" required>
-            </label>
-            
-            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
-                <p class="text-center text-sm text-gray-600 dark:text-gray-400 mb-3">Pilih cara untuk sahkan pesanan:</p>
-                <div class="flex flex-col sm:flex-row items-center justify-end gap-3">
-                    <button type="button" id="wa-btn" class="w-full sm:w-auto btn-dark flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E]">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-message-circle"><path d="m3 21 1.9-5.7a8.5 8.5 0 1 1 3.8 3.8z"/></svg>
-                        Sahkan Melalui WhatsApp
-                    </button>
-                    <button type="submit" class="w-full sm:w-auto btn-primary">
-                        Sahkan Pesanan di Sini
-                    </button>
-                </div>
-                 <button type="button" id="close-checkout-modal-btn" class="w-full text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mt-4">Batal</button>
-            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4"><label class="form-label"><span>Nama Penerima</span><input id="co-name" class="form-input" required></label><label class="form-label"><span>Telefon</span><input id="co-phone" class="form-input" required></label></div>
+            <label class="form-label"><span>Alamat</span><textarea id="co-address" rows="3" class="form-input" required></textarea></label>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4"><label class="form-label"><span>Kaedah Pembayaran</span><select id="co-payment" class="form-input" required><option value="Transfer">Bank Transfer</option><option value="COD">COD (Tunai)</option><option value="FPX">FPX (Demo)</option></select></label><label class="form-label"><span>Nota (Opsyenal)</span><input id="co-note" class="form-input" placeholder="Arahan penghantaran, dll."></label><div id="bank-info" class="md:col-span-2"></div></div>
+            <label id="receipt-upload-area" class="form-label"><span>Resit Pembayaran (jika 'Bank Transfer')</span><input id="co-receipt" type="file" accept="image/*" class="text-sm text-gray-600 dark:text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-50 dark:file:bg-cyan-900/50 file:text-cyan-700 dark:file:text-cyan-300 hover:file:bg-cyan-100"></label>
+            <div class="flex items-center justify-end gap-2 pt-3"><button type="button" id="close-checkout-modal-btn" class="btn-light">Batal</button><button type="button" id="wa-btn" class="btn-dark">WhatsApp</button><button class="btn-primary">Sahkan Pesanan</button></div>
         </form>
       </div>
     </div>
+
     <div id="product-form-modal" class="modal">
       <div class="modal-card max-w-2xl">
         <form id="product-form">
