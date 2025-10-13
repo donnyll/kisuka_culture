@@ -1,3 +1,9 @@
+/* Muat turun fon kustom */
+@font-face {
+  font-family: 'Rattenca';
+  src: url('RattencaDemo-7OYWE.otf') format('opentype');
+}
+
 :root {
   --brand: #0891b2; /* Cyan-600 */
   --brand-light: #ecfeff; /* Cyan-50 */
@@ -19,8 +25,13 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .font-brand {
-  font-family: 'Rubik Vinyl', system-ui;
+  font-family: 'Rattenca', system-ui;
+  color: #1f2937; /* Warna hitam untuk mod cerah */
 }
+html.dark .font-brand {
+  color: #ffffff; /* Warna putih untuk mod gelap */
+}
+
 
 /* Enforce pure black background in dark mode */
 html.dark body,
@@ -208,4 +219,6 @@ html.dark .skeleton-card .text { background-color: #4b5563; }
 
 @keyframes slideInUpFadeOut { 0% { opacity: 0; transform: translateY(20px) } 10% { opacity: 1; transform: translateY(0) } 90% { opacity: 1; transform: translateY(0) } 100% { opacity: 0; transform: translateY(20px) } }
 .toast-notification { animation: slideInUpFadeOut 3.5s ease-in-out forwards; }
+
+    
 
