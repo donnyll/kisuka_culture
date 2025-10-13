@@ -5,7 +5,7 @@ const STORAGE_BUCKET = "kisuka_culture";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ====== Settings ====== */
-const WHATSAPP_NUMBER = '60123456789'; // Replace with your actual WhatsApp number
+const WHATSAPP_NUMBER = '60178450771'; // Replace with your actual WhatsApp number
 const BANK_DETAILS = {
     name: "Maybank",
     account: "123456789012",
