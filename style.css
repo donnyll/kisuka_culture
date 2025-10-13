@@ -18,6 +18,9 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
+.font-brand {
+  font-family: 'Rubik 80s Fade', system-ui;
+}
 
 /* Enforce pure black background in dark mode */
 html.dark body,
