@@ -5,7 +5,7 @@ const STORAGE_BUCKET = "kisuka_culture";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ====== Settings ====== */
-const WHATSAPP_NUMBER = '60123456789'; // Gantikan dengan nombor WhatsApp sebenar
+const WHATSAPP_NUMBER = '60123456789'; // Replace with your actual WhatsApp number
 const BANK_DETAILS = {
     name: "Maybank",
     account: "123456789012",
@@ -18,7 +18,7 @@ const $$ = (s, r=document)=>[...r.querySelectorAll(s)];
 const money = n => "RM" + (Number(n)||0).toFixed(2);
 const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
-const firstImageOf = (p) => { const arr = normalizeImages(p?.image_urls); return (arr && arr.length) ? arr[0] : "https://placehold.co/600x600?text=Produk"; };
+const firstImageOf = (p) => { const arr = normalizeImages(p?.image_urls); return (arr && arr.length) ? arr[0] : "https://placehold.co/600x600?text=Product"; };
 const normalizeImages = (val) => { if (Array.isArray(val)) return val; if (typeof val === "string") { try { const arr = JSON.parse(val); return Array.isArray(arr) ? arr : []; } catch { return []; } } return []; };
 
 function showToast(msg, type='success'){
@@ -36,7 +36,7 @@ let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let ALL_PRODUCTS = [];
 let ALL_CATEGORIES = [];
 let TOTAL_PRODUCTS = 0;
-let CURRENT_FILTER = { category:'Semua', term:'', sort:'popular' };
+let CURRENT_FILTER = { category:'All', term:'', sort:'popular' };
 let currentPage = 1;
 const pageSize = 8;
 
@@ -73,18 +73,18 @@ function renderAuthArea(user, isAdmin){
   } else {
     area.innerHTML = `
       <div class="max-w-md mx-auto bg-white dark:bg-gray-800 p-6 rounded-lg border dark:border-gray-700">
-        <h2 class="text-xl font-bold text-center text-gray-900 dark:text-white mb-4">Log Masuk Admin</h2>
+        <h2 class="text-xl font-bold text-center text-gray-900 dark:text-white mb-4">Admin Login</h2>
         <form id="login-form" class="space-y-4">
             <input type="email" id="login-email" placeholder="admin@email.com" class="form-input" required>
-            <input type="password" id="login-pass" placeholder="kata laluan" class="form-input" required>
-            <button class="btn-primary w-full">Log Masuk</button>
+            <input type="password" id="login-pass" placeholder="password" class="form-input" required>
+            <button class="btn-primary w-full">Log In</button>
         </form>
       </div>`;
     $("#login-form")?.addEventListener("submit", async (e)=>{
       e.preventDefault();
       const { error } = await supabase.auth.signInWithPassword({ email: $("#login-email").value.trim(), password: $("#login-pass").value });
       if (error) return showToast(error.message, 'error');
-      showToast("Berjaya log masuk");
+      showToast("Login successful");
       handleAdminAccess();
     });
   }
@@ -121,30 +121,29 @@ async function fetchSettings() {
         heroImg.classList.remove('hidden');
         heroPreviewContainer.innerHTML = `<img src="${settings.hero_image_url}${cacheBuster}" class="w-full h-full object-cover">`;
     } else {
-        // Fallback if no media is set
         heroImg.classList.remove('hidden');
         heroImg.src = 'https://placehold.co/1920x1080/000000/FFFFFF?text=kisuka_culture';
-        heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Pratonton</span>`;
+        heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Preview</span>`;
     }
 }
-async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
+async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null }={}){
   let query = supabase.from('products').select('*', { count: 'exact' });
   if (ids) { query = query.in('id', ids); } 
   else {
     if (term.trim()) query = query.ilike('name', `%${term}%`);
-    if (category && category !== 'Semua') query = query.eq('category', category);
+    if (category && category !== 'All') query = query.eq('category', category);
     if (sort==='price-asc') query = query.order('price', { ascending:true });
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
     query = query.range((page-1)*pageSize, page*pageSize - 1);
   }
   const { data, count, error } = await query;
-  if (error){ showToast("Gagal memuat produk", 'error'); return { rows:[], count:0 }; }
+  if (error){ showToast("Failed to load products", 'error'); return { rows:[], count:0 }; }
   return { rows: data||[], count: count||0 };
 }
 async function fetchCategories() {
     const { data, error } = await supabase.from('categories').select('*').order('name');
-    if (error) { showToast("Gagal memuat kategori", "error"); return []; }
+    if (error) { showToast("Failed to load categories", "error"); return []; }
     ALL_CATEGORIES = data || [];
     return ALL_CATEGORIES;
 }
@@ -156,7 +155,7 @@ async function createOrUpdateProduct(record, files){
     const newImageUrls = [];
     if (files && files.length > 0) {
         const uploadPromises = [...files].map(file => {
-            const path = `${(record.category||'umum').toLowerCase()}/${uid()}.${file.name.split('.').pop()}`;
+            const path = `${(record.category||'general').toLowerCase()}/${uid()}.${file.name.split('.').pop()}`;
             return supabase.storage.from(STORAGE_BUCKET).upload(path, file);
         });
         const uploadResults = await Promise.all(uploadPromises);
@@ -181,11 +180,9 @@ async function createOrder(order) {
     if (error) throw error;
 }
 
-
 /* ====== RENDER FUNCTIONS ====== */
 const productBadge = p => {
-    if (p.stock === 0) return '<span class="badge-stock badge-stock-out">HABIS</span>';
-    if (p.stock < 5) return '<span class="badge-stock badge-stock-low">STOK TERHAD</span>';
+    if (p.stock === 0) return '<span class="badge-stock badge-stock-out">Out of Stock</span>';
     return '';
 };
 const productCard = p => {
@@ -200,7 +197,7 @@ const productCard = p => {
       </div>
       <div class="product-image-container group-hover:scale-105 transition-transform duration-300">
         <img src="${firstImageOf(p)}" alt="${p.name}">
-        ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">HABIS DIJUAL</span></div>':''}
+        ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">SOLD OUT</span></div>':''}
       </div>
     </div>
     <div class="p-4 flex flex-col flex-grow">
@@ -212,7 +209,7 @@ const productCard = p => {
         <p class="text-base font-extrabold text-gray-900 dark:text-white">${money(p.price)}</p>
       </div>
       <div class="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
-        <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Tambah ke Troli</button>
+        <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Add to Cart</button>
       </div>
     </div>
   </div>`;
@@ -227,7 +224,7 @@ function renderGrid(products, gridElement, emptyMsg) {
 }
 function renderCategories(){
   const wrap = $("#category-filters"); if (!wrap) return;
-  const cats = ['Semua', ...new Set(ALL_CATEGORIES.map(c=>c.name).filter(Boolean).sort())];
+  const cats = ['All', ...new Set(ALL_CATEGORIES.map(c=>c.name).filter(Boolean).sort())];
   wrap.innerHTML = cats.map(c=> `<button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200 dark:hover:bg-gray-600">${c}</button>`).join('');
 }
 function renderPagination(){
@@ -242,21 +239,21 @@ function renderPagination(){
 async function renderProductDetail(id) {
     const view = $("#product-detail-view");
     if (!view) return;
-    view.innerHTML = `<div class="p-8 text-center text-gray-700 dark:text-gray-300">Memuat...</div>`;
+    view.innerHTML = `<div class="p-8 text-center text-gray-700 dark:text-gray-300">Loading...</div>`;
 
     const { data: p, error } = await supabase.from('products').select('*').eq('id', id).single();
     if (error || !p) {
-        view.innerHTML = '<p class="p-8 text-center">Produk tidak ditemui.</p>';
+        view.innerHTML = '<p class="p-8 text-center">Product not found.</p>';
         return;
     }
 
     const isWishlisted = wishlist.includes(String(p.id));
     const allImages = normalizeImages(p.image_urls);
-    const mainImage = allImages.length > 0 ? allImages[0] : 'https://placehold.co/800x800?text=Gambar';
+    const mainImage = allImages.length > 0 ? allImages[0] : 'https://placehold.co/800x800?text=Image';
 
     view.innerHTML = `
     <section class="max-w-5xl mx-auto p-4">
-      <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline"><i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Kembali</a>
+      <a href="#" data-view="all-products" class="nav-link text-sm text-cyan-600 mb-6 inline-flex items-center hover:underline"><i data-lucide="arrow-left" class="w-4 h-4 mr-1"></i> Back</a>
       
       <div>
         <img id="main-product-image" src="${mainImage}" alt="${p.name}" class="w-full rounded-lg shadow-lg mb-4 object-cover h-80">
@@ -268,14 +265,13 @@ async function renderProductDetail(id) {
       </div>
 
       <div class="text-gray-800 dark:text-gray-200 mt-4">
-        <p class="text-gray-500 dark:text-gray-400 text-sm">Kategori: ${p.category}</p>
+        <p class="text-gray-500 dark:text-gray-400 text-sm">Category: ${p.category}</p>
         <h2 class="text-3xl font-extrabold text-gray-900 dark:text-white mt-1">${p.name}</h2>
         <p class="text-3xl font-bold text-gray-900 dark:text-white my-4">${money(p.price)}</p>
-        <p class="text-gray-600 dark:text-gray-300 leading-relaxed">${p.description || 'Tiada penerangan.'}</p>
-        ${p.stock > 0 && p.stock < 10 ? `<p class="text-red-600 font-semibold text-sm mt-4">${p.stock} unit sahaja lagi!</p>`:''}
-        ${p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">HABIS DIJUAL</p>`:''}
+        <p class="text-gray-600 dark:text-gray-300 leading-relaxed">${p.description || 'No description available.'}</p>
+        ${p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">SOLD OUT</p>`:''}
         <div class="flex gap-3 mt-6">
-          <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">Tambah ke Troli</button>
+          <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">Add to Cart</button>
           <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border border-gray-300 dark:border-gray-600 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800">
             <i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600 dark:text-gray-300'}"></i>
           </button>
@@ -297,12 +293,12 @@ async function renderProductDetail(id) {
 async function renderWishlist() {
   const grid = $("#wishlist-grid"); if (!grid) return;
   if (wishlist.length === 0) {
-    grid.innerHTML = '<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-12">Wishlist anda kosong.</p>';
+    grid.innerHTML = '<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-12">Your wishlist is empty.</p>';
     return;
   }
   renderSkeletonGrid(grid);
   const { rows } = await fetchProductsServer({ ids: wishlist });
-  renderGrid(rows, grid, 'Tiada produk dalam wishlist anda.');
+  renderGrid(rows, grid, 'Your wishlist is empty.');
 }
 
 /* ====== CART & PAYMENT LOGIC ====== */
@@ -310,7 +306,7 @@ const cartTotal = () => cart.reduce((s,i)=> s + i.price*i.quantity, 0);
 function renderCart(){
   const box = $("#cart-items");
   if (box){
-    if (cart.length===0) box.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center"><i data-lucide="shopping-basket" class="w-16 h-16 text-gray-300 dark:text-gray-600"></i><p class="text-gray-500 dark:text-gray-400 mt-4">Troli anda kosong.</p></div>';
+    if (cart.length===0) box.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center"><i data-lucide="shopping-basket" class="w-16 h-16 text-gray-300 dark:text-gray-600"></i><p class="text-gray-500 dark:text-gray-400 mt-4">Your cart is empty.</p></div>`;
     else {
       box.innerHTML = cart.map(it=>`
         <div class="flex items-start gap-4 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
@@ -339,13 +335,13 @@ function renderCart(){
 function addToCart(p){
   const it = cart.find(x=>String(x.id)===String(p.id));
   if (it){
-    if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} ditambah!`); }
-    else return showToast(`Stok ${p.name} tidak mencukupi!`,'error');
+    if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} added to cart!`); }
+    else return showToast(`Not enough stock for ${p.name}!`,'error');
   } else {
     if (p.stock > 0) {
       cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:firstImageOf(p), stock:p.stock, quantity:1 });
-      showToast(`${p.name} ditambah!`);
-    } else return showToast(`Stok ${p.name} habis!`, 'error');
+      showToast(`${p.name} added to cart!`);
+    } else return showToast(`${p.name} is out of stock!`, 'error');
   }
   renderCart();
   const cartBtn = $("#cart-btn");
@@ -356,12 +352,12 @@ async function updateQuantity(id, d){
   const it = cart.find(i=>String(i.id)===String(id)); if (!it) return;
   const q = it.quantity + d; if (q<=0) return removeFromCart(id);
   const p = ALL_PRODUCTS.find(x => String(x.id) === String(id)) || it;
-  if (q > p.stock) return showToast(`Stok ${p.name} tidak mencukupi!`,'error');
+  if (q > p.stock) return showToast(`Not enough stock for ${p.name}!`,'error');
   it.quantity=q; renderCart();
 }
 function goToPayment() {
     if (cart.length === 0) {
-        showToast('Troli anda kosong!', 'error');
+        showToast('Your cart is empty!', 'error');
         return;
     }
     $("#bank-name").textContent = BANK_DETAILS.name;
@@ -375,7 +371,7 @@ async function handleOrderSubmit(e) {
     e.preventDefault();
     const btn = $('#submit-payment-btn');
     btn.disabled = true;
-    btn.textContent = 'Memproses...';
+    btn.textContent = 'Processing...';
 
     const formData = new FormData(e.target);
     const customer_details = Object.fromEntries(formData.entries());
@@ -383,16 +379,14 @@ async function handleOrderSubmit(e) {
     delete customer_details.receipt;
 
     try {
-        if (!receiptFile || receiptFile.size === 0) throw new Error("Sila muat naik resit pembayaran.");
+        if (!receiptFile || receiptFile.size === 0) throw new Error("Please upload the payment receipt.");
         
-        // 1. Upload receipt
         const receiptPath = `receipts/${uid()}-${receiptFile.name}`;
         const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(receiptPath, receiptFile);
         if (uploadError) throw uploadError;
 
         const { data: { publicUrl: receipt_url } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(receiptPath);
 
-        // 2. Prepare order data
         const order = {
             id: uid().toUpperCase(),
             customer_details,
@@ -402,27 +396,24 @@ async function handleOrderSubmit(e) {
             receipt_url
         };
         
-        // 3. Save order to DB
         await createOrder(order);
 
-        // 4. Update stock
         const stockUpdates = cart.map(item =>
             supabase.from('products').update({ stock: item.stock - item.quantity }).eq('id', item.id)
         );
         await Promise.all(stockUpdates);
 
-        // 5. Cleanup and confirmation
         cart = [];
         localStorage.removeItem(KEYS.CART);
         renderCart();
-        showToast('Pesanan anda telah berjaya dihantar!');
+        showToast('Your order has been submitted successfully!');
         switchView('home');
 
     } catch (err) {
-        showToast(err.message || 'Gagal menghantar pesanan.', 'error');
+        showToast(err.message || 'Failed to submit order.', 'error');
     } finally {
         btn.disabled = false;
-        btn.textContent = 'Sahkan & Hantar';
+        btn.textContent = 'Confirm & Submit';
     }
 }
 
@@ -479,23 +470,23 @@ async function renderAdminCategories() {
                 <i data-lucide="trash-2" class="w-4 h-4 pointer-events-none"></i>
             </button>
         </div>
-    `).join('') || '<p class="p-4 text-center text-gray-500">Tiada kategori.</p>';
+    `).join('') || '<p class="p-4 text-center text-gray-500">No categories.</p>';
     iconify();
 }
 async function renderAdminOrders() {
     const list = $("#admin-order-list");
     if (!list) return;
-    list.innerHTML = `<p class="p-4 text-center text-gray-500">Memuatkan pesanan...</p>`;
+    list.innerHTML = `<p class="p-4 text-center text-gray-500">Loading orders...</p>`;
     
     const { data: orders, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
 
     if (error) {
-        list.innerHTML = `<p class="p-4 text-center text-red-500">Gagal memuatkan pesanan.</p>`;
+        list.innerHTML = `<p class="p-4 text-center text-red-500">Failed to load orders.</p>`;
         return;
     }
     
     if (orders.length === 0) {
-        list.innerHTML = `<p class="p-4 text-center text-gray-500">Tiada pesanan lagi.</p>`;
+        list.innerHTML = `<p class="p-4 text-center text-gray-500">No orders yet.</p>`;
         return;
     }
 
@@ -509,43 +500,43 @@ async function renderAdminOrders() {
                 <p class="font-semibold text-gray-800 dark:text-gray-200">${money(o.total)}</p>
                 <p class="text-xs font-medium ${o.status === 'Shipped' ? 'text-green-500' : 'text-yellow-500'}">${o.status}</p>
             </div>
-            <button data-action="view-order" data-id="${o.id}" class="btn-light !py-1 !px-3 text-xs">Lihat</button>
+            <button data-action="view-order" data-id="${o.id}" class="btn-light !py-1 !px-3 text-xs">View</button>
         </div>
     `).join('') + `</div>`;
 }
 async function showOrderDetailModal(id) {
     const { data: order, error } = await supabase.from('orders').select('*').eq('id', id).single();
-    if (error || !order) return showToast('Gagal mendapatkan butiran pesanan.', 'error');
+    if (error || !order) return showToast('Failed to get order details.', 'error');
 
     const content = $('#order-detail-content');
     content.innerHTML = `
         <div class="flex justify-between items-start">
             <div>
-                <h3 class="text-xl font-bold text-gray-900 dark:text-white">Pesanan #${order.id.slice(-6)}</h3>
+                <h3 class="text-xl font-bold text-gray-900 dark:text-white">Order #${order.id.slice(-6)}</h3>
                 <p class="text-sm text-gray-500">${new Date(order.created_at).toLocaleString()}</p>
             </div>
             <button data-action="close-modal" class="btn-icon"><i data-lucide="x" class="w-5 h-5"></i></button>
         </div>
         <div class="mt-4 border-t dark:border-gray-700 pt-4 space-y-3">
             <div>
-                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Butiran Pelanggan</h4>
+                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Customer Details</h4>
                 <div class="text-sm text-gray-600 dark:text-gray-300 space-y-1">
-                    <p><strong>Nama:</strong> ${order.customer_details.name}</p>
-                    <p><strong>Emel:</strong> ${order.customer_details.email}</p>
-                    <p><strong>Telefon:</strong> ${order.customer_details.phone}</p>
-                    <p><strong>Alamat:</strong> ${order.customer_details.address}</p>
-                    ${order.customer_details.note ? `<p><strong>Nota:</strong> ${order.customer_details.note}</p>` : ''}
+                    <p><strong>Name:</strong> ${order.customer_details.name}</p>
+                    <p><strong>Email:</strong> ${order.customer_details.email}</p>
+                    <p><strong>Phone:</strong> ${order.customer_details.phone}</p>
+                    <p><strong>Address:</strong> ${order.customer_details.address}</p>
+                    ${order.customer_details.note ? `<p><strong>Note:</strong> ${order.customer_details.note}</p>` : ''}
                 </div>
             </div>
             <div>
-                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Item Dipesan</h4>
+                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Items Ordered</h4>
                 <ul class="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 space-y-1">
                     ${order.items.map(item => `<li>${item.quantity}x ${item.name} - ${money(item.price * item.quantity)}</li>`).join('')}
                 </ul>
-                <p class="font-bold text-right mt-2 text-gray-800 dark:text-gray-200">Jumlah: ${money(order.total)}</p>
+                <p class="font-bold text-right mt-2 text-gray-800 dark:text-gray-200">Total: ${money(order.total)}</p>
             </div>
             <div>
-                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-2">Resit Pembayaran</h4>
+                <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-2">Payment Receipt</h4>
                 <a href="${order.receipt_url}" target="_blank">
                     <img src="${order.receipt_url}" class="w-full max-w-xs mx-auto rounded-md border dark:border-gray-600 cursor-pointer hover:opacity-80 transition-opacity">
                 </a>
@@ -564,9 +555,9 @@ async function showOrderDetailModal(id) {
 async function updateOrderStatus(id, status) {
     const { error } = await supabase.from('orders').update({ status }).eq('id', id);
     if (error) {
-        showToast('Gagal kemas kini status.', 'error');
+        showToast('Failed to update status.', 'error');
     } else {
-        showToast('Status pesanan dikemas kini!');
+        showToast('Order status updated!');
         renderAdminOrders();
     }
 }
@@ -576,9 +567,9 @@ async function renderAdmin(){
     const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: 100 });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => `<div class="p-3 flex items-center justify-between gap-3">
-          <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stok: ${p.stock}</p></div>
-          <div class="flex-shrink-0"><button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button><button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Padam</button></div>
-      </div>`).join('') || '<p class="p-4 text-center text-gray-500">Tiada produk.</p>'}
+          <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stock: ${p.stock}</p></div>
+          <div class="flex-shrink-0"><button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button><button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Delete</button></div>
+      </div>`).join('') || '<p class="p-4 text-center text-gray-500">No products.</p>'}
     </div>`;
   }
   await Promise.all([renderAdminCategories(), renderAdminOrders()]);
@@ -604,7 +595,7 @@ async function openProductForm(id = null) {
     
     await fetchCategories();
     const categoryInput = $("#product-category");
-    categoryInput.innerHTML = `<option value="">Pilih Kategori</option>` + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+    categoryInput.innerHTML = `<option value="">Select Category</option>` + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
 
     let p = null;
     if (id) {
@@ -613,7 +604,7 @@ async function openProductForm(id = null) {
     }
     
     if (p) {
-        $("#product-form-title").textContent = 'Kemas Kini Produk';
+        $("#product-form-title").textContent = 'Update Product';
         $("#product-id").value = p.id; $("#product-name").value = p.name;
         $("#product-price").value = p.price; $("#product-stock").value = p.stock;
         $("#product-category").value = p.category || '';
@@ -622,7 +613,7 @@ async function openProductForm(id = null) {
         $("#product-existing-images").value = JSON.stringify(existingImages);
         renderImagePreviews(existingImages, $("#product-images-preview"));
     } else {
-        $("#product-form-title").textContent = 'Tambah Produk Baharu';
+        $("#product-form-title").textContent = 'Add New Product';
     }
     togglePanel('product-form-modal', true);
 }
@@ -637,8 +628,8 @@ async function loadPage(){
   ALL_PRODUCTS = rows;
   TOTAL_PRODUCTS = count;
   renderCategories();
-  renderGrid(ALL_PRODUCTS, grid, 'Tiada produk ditemui.');
-  renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'Tiada produk pilihan.');
+  renderGrid(ALL_PRODUCTS, grid, 'No products found.');
+  renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'No featured products.');
   renderPagination();
 }
 document.addEventListener('DOMContentLoaded', async ()=>{
@@ -682,24 +673,24 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if (action==='toggle-wishlist'){
         if (wishlist.includes(id)) wishlist = wishlist.filter(x=>x!==id); else wishlist.push(id);
         localStorage.setItem(KEYS.WISHLIST, JSON.stringify(wishlist));
-        showToast('Wishlist dikemaskini'); renderCart();
+        showToast('Wishlist updated'); renderCart();
         actionBtn.querySelector('i').classList.toggle('text-red-500', wishlist.includes(id));
         actionBtn.querySelector('i').classList.toggle('fill-red-500', wishlist.includes(id));
         if ($("#wishlist-view")?.classList.contains('active')) await renderWishlist();
       }
       if (action==='edit-product') openProductForm(id);
       if (action==='delete-product'){
-        if (!confirm("Padam produk ini?")) return;
-        try { await deleteProduct(id); showToast('Produk dipadam'); await renderAdmin(); await loadPage(); }
-        catch(err) { showToast(err.message||'Gagal padam','error'); }
+        if (!confirm("Delete this product?")) return;
+        try { await deleteProduct(id); showToast('Product deleted'); await renderAdmin(); await loadPage(); }
+        catch(err) { showToast(err.message||'Failed to delete','error'); }
       }
       if (action==='delete-category') {
-          if (!confirm("Padam kategori ini?")) return;
+          if (!confirm("Delete this category?")) return;
           try {
               const { error } = await supabase.from('categories').delete().eq('id', id);
               if (error) throw error;
-              showToast('Kategori dipadam'); await renderAdminCategories();
-          } catch(err) { showToast(err.message || 'Gagal padam', 'error'); }
+              showToast('Category deleted'); await renderAdminCategories();
+          } catch(err) { showToast(err.message || 'Failed to delete', 'error'); }
       }
       if (action==='view-order') showOrderDetailModal(id);
       if (action==='close-modal') closeAllPanels();
@@ -711,10 +702,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (e.target.closest('#theme-btn')) applyTheme(document.documentElement.classList.contains('dark') ? 'light' : 'dark');
     if (e.target.closest('#checkout-btn')) goToPayment();
     if (e.target.closest('#whatsapp-btn')) {
-        if (cart.length === 0) return showToast('Troli anda kosong!', 'error');
+        if (cart.length === 0) return showToast('Your cart is empty!', 'error');
         const itemsList = cart.map(item => `• ${item.quantity}x ${item.name} (${money(item.price * item.quantity)})`).join('\n');
         const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-        const message = `Assalamualaikum, saya berminat untuk menempah barang berikut:\n\n${itemsList}\n\n*Jumlah: ${money(total)}*\n\nBoleh sahkan ketersediaan stok? Terima kasih.`;
+        const message = `Hi, I'm interested in ordering the following items:\n\n${itemsList}\n\n*Total: ${money(total)}*\n\nCan you confirm stock availability? Thank you.`;
         const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
         closeAllPanels();
@@ -737,7 +728,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   /* ====== ADMIN HANDLERS ====== */
   $("#logout-btn")?.addEventListener("click", async ()=>{
       await supabase.auth.signOut(); 
-      showToast("Log keluar"); 
+      showToast("Logged out"); 
       handleAdminAccess();
   });
   $("#admin-tabs")?.addEventListener('click', e => {
@@ -749,15 +740,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $("#add-product-btn")?.addEventListener("click", () => openProductForm());
   $("#add-category-btn")?.addEventListener('click', async () => {
       const name = $("#new-category-name").value.trim();
-      if (!name) return showToast('Nama kategori diperlukan', 'error');
+      if (!name) return showToast('Category name is required', 'error');
       const { error } = await supabase.from('categories').insert({ name });
       if (error) return showToast(error.message, 'error');
-      showToast('Kategori ditambah'); $("#new-category-name").value = '';
+      showToast('Category added'); $("#new-category-name").value = '';
       await renderAdminCategories();
   });
   $("#save-hero-btn")?.addEventListener('click', async () => {
       const file = $("#hero-file")?.files?.[0];
-      if (!file) return showToast('Sila pilih fail', 'error');
+      if (!file) return showToast('Please select a file', 'error');
       
       const isVideo = file.type.startsWith('video/');
       const dbKey = isVideo ? 'hero_video_url' : 'hero_image_url';
@@ -773,10 +764,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           const { error: dbError } = await supabase.from('settings').upsert({ key: dbKey, value: publicUrl }, { onConflict: 'key' });
           if (dbError) throw dbError;
           
-          // Remove the other key to avoid conflicts
           await supabase.from('settings').delete().eq('key', otherDbKey);
 
-          showToast('Media hero disimpan');
+          showToast('Hero media saved');
           await fetchSettings();
       } catch (err) { showToast(err.message, 'error'); }
   });
@@ -801,7 +791,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const files = $("#product-images-input").files;
       try {
           await createOrUpdateProduct(record, files);
-          showToast(`Produk ${record.id ? 'dikemaskini' : 'ditambah'}`);
+          showToast(`Product ${record.id ? 'updated' : 'added'}`);
           closeAllPanels(); await renderAdmin(); await loadPage();
       } catch (err) { showToast(err.message, 'error'); }
   });
