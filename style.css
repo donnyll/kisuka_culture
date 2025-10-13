@@ -28,7 +28,7 @@ html.dark #app-container {
 /* Override specific components for pure black dark mode */
 html.dark header,
 html.dark #bottom-nav {
-  background-color: rgba(0, 0, 0, 0.75); /* Semi-transparent black for blur effect */
+  background-color: #000000; /* Pure Black */
 }
 html.dark #cart-panel > div:last-child {
   background-color: #000000;
@@ -57,6 +57,9 @@ html.dark .nav-bottom { color: #9ca3af; }
   border-radius: 999px; height: 18px; width: 18px;
   display: flex; align-items: center; justify-content: center;
   border: 2px solid var(--bg-light);
+}
+html.dark .badge-dot {
+  border-color: var(--bg-panel-light);
 }
 .badge-dot.small { height: 16px; width: 16px; top: -2px; right: 12px; }
 .badge-stock {
@@ -101,7 +104,7 @@ html.dark .badge-stock-out { background-color: #374151; color: #d1d5db; }
 .btn-primary { background:#06b6d4; color:#fff; }
 .btn-primary:hover:not(:disabled) { background: #0891b2; }
 .btn-light { background:var(--bg-panel-light); color: var(--text-dark); border:1px solid var(--border-color); }
-.btn-light:hover { background-color: var(--bg-light); }
+.btn-light:hover { background-color: #27272a; }
 .form-input {
     width: 100%; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem;
     background-color: var(--bg-panel-light); color: var(--text-dark); border: 1px solid var(--border-color); transition: all .2s;
