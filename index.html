@@ -141,14 +141,34 @@
             <div id="admin-panel" class="hidden">
               <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
                 <nav id="admin-tabs" class="flex gap-4 -mb-px overflow-x-auto" aria-label="Tabs">
-                  <button data-tab="products" class="admin-tab active">Products</button>
+                  <button data-tab="dashboard" class="admin-tab active">Dashboard</button>
+                  <button data-tab="products" class="admin-tab">Products</button>
                   <button data-tab="orders" class="admin-tab">Orders</button>
                   <button data-tab="categories" class="admin-tab">Categories</button>
                   <button data-tab="settings" class="admin-tab">Settings</button>
                 </nav>
               </div>
 
-              <div id="admin-products-content" class="admin-tab-content"><div class="flex items-center justify-end mb-4"><button id="add-product-btn" class="btn-primary">Add Product</button></div><div id="admin-product-list"></div></div>
+              <div id="admin-dashboard-content" class="admin-tab-content">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="stat-card">
+                        <i data-lucide="package" class="stat-icon"></i>
+                        <h3>Total Products</h3>
+                        <p id="admin-total-products" class="stat-num">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <i data-lucide="shopping-cart" class="stat-icon"></i>
+                        <h3>Total Orders</h3>
+                        <p id="admin-total-orders" class="stat-num">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <i data-lucide="dollar-sign" class="stat-icon"></i>
+                        <h3>Total Sales</h3>
+                        <p id="admin-total-sales" class="stat-num">RM0.00</p>
+                    </div>
+                </div>
+              </div>
+              <div id="admin-products-content" class="admin-tab-content hidden"><div class="flex items-center justify-end mb-4"><button id="add-product-btn" class="btn-primary">Add Product</button></div><div id="admin-product-list"></div></div>
               <div id="admin-orders-content" class="admin-tab-content hidden"><div id="admin-order-list"></div></div>
               <div id="admin-categories-content" class="admin-tab-content hidden"><div class="flex items-center gap-2 mb-4"><input id="new-category-name" class="form-input" placeholder="New category name" /><button id="add-category-btn" class="btn-primary">Add</button></div><div id="category-list" class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700"></div></div>
               <div id="admin-settings-content" class="admin-tab-content hidden"><div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4"><h3 class="font-bold text-gray-900 dark:text-white mb-3">Hero Media</h3><div class="flex flex-col sm:flex-row items-center gap-4"><div id="hero-preview-container" class="w-48 h-24 bg-gray-100 dark:bg-gray-700 rounded border dark:border-gray-600 flex items-center justify-center"></div><div class="space-y-2"><input id="hero-file" type="file" accept="video/*,image/*" class="form-file"><button id="save-hero-btn" class="btn-primary">Save</button></div></div></div></div>

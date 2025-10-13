@@ -135,7 +135,9 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     if (sort==='price-asc') query = query.order('price', { ascending:true });
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
-    query = query.range((page-1)*pageSize, page*pageSize - 1);
+    if (page && pageSize) {
+      query = query.range((page-1)*pageSize, page*pageSize - 1);
+    }
   }
   const { data, count, error } = await query;
   if (error){ showToast("Failed to load products", 'error'); return { rows:[], count:0 }; }
@@ -459,6 +461,22 @@ async function switchView(view){
 
 
 /* ====== ADMIN LOGIC ====== */
+async function renderAdminDashboard() {
+    const [{ count: productCount }, { data: orders, error }] = await Promise.all([
+        supabase.from('products').select('*', { count: 'exact', head: true }),
+        supabase.from('orders').select('total')
+    ]);
+
+    if (error) {
+        console.error("Error fetching orders for dashboard:", error);
+    }
+
+    $('#admin-total-products').textContent = productCount || 0;
+    $('#admin-total-orders').textContent = orders?.length || 0;
+    const totalSales = orders?.reduce((sum, order) => sum + (order.total || 0), 0) || 0;
+    $('#admin-total-sales').textContent = money(totalSales);
+    iconify();
+}
 async function renderAdminCategories() {
     await fetchCategories();
     const list = $("#category-list");
@@ -562,9 +580,11 @@ async function updateOrderStatus(id, status) {
     }
 }
 async function renderAdmin(){
+  await renderAdminDashboard();
+  
   const pList = $("#admin-product-list");
   if(pList) {
-    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: 100 });
+    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => `<div class="p-3 flex items-center justify-between gap-3">
           <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stock: ${p.stock}</p></div>
@@ -572,7 +592,6 @@ async function renderAdmin(){
       </div>`).join('') || '<p class="p-4 text-center text-gray-500">No products.</p>'}
     </div>`;
   }
-  await Promise.all([renderAdminCategories(), renderAdminOrders()]);
 }
 
 function renderImagePreviews(images, container) {
@@ -624,7 +643,7 @@ async function loadPage(){
   const grid = $("#all-product-grid");
   renderSkeletonGrid(grid);
   await fetchCategories();
-  const { rows, count } = await fetchProductsServer({ page: currentPage, term: CURRENT_FILTER.term, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
+  const { rows, count } = await fetchProductsServer({ page: currentPage, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
   ALL_PRODUCTS = rows;
   TOTAL_PRODUCTS = count;
   renderCategories();
@@ -735,6 +754,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const btn = e.target.closest('.admin-tab'); if (!btn) return;
     $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
     $$('.admin-tab-content').forEach(c => c.classList.add('hidden')); $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
+    if (btn.dataset.tab === 'dashboard') renderAdminDashboard();
     if (btn.dataset.tab === 'orders') renderAdminOrders();
   });
   $("#add-product-btn")?.addEventListener("click", () => openProductForm());
