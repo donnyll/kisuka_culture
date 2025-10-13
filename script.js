@@ -5,7 +5,7 @@ const STORAGE_BUCKET = "kisuka_culture";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ====== Settings ====== */
-const WHATSAPP_NUMBER = '60179082122'; // Gantikan dengan nombor WhatsApp sebenar
+const WHATSAPP_NUMBER = '60123456789'; // Gantikan dengan nombor WhatsApp sebenar
 const BANK_DETAILS = {
     name: "Maybank",
     account: "123456789012",
@@ -103,9 +103,23 @@ async function fetchSettings() {
     if (error) { console.error("Error fetching settings:", error); return {}; }
     const settings = data.reduce((acc, { key, value }) => ({ ...acc, [key]: value }), {});
     
-    if (settings.hero_image_url) {
-        $("#hero-img")?.setAttribute('src', settings.hero_image_url);
-        $("#hero-preview")?.setAttribute('src', settings.hero_image_url);
+    const heroVideo = $('#hero-video');
+    const heroImg = $('#hero-img');
+    const heroPreviewContainer = $('#hero-preview-container');
+
+    heroVideo.classList.add('hidden');
+    heroImg.classList.add('hidden');
+
+    if (settings.hero_video_url) {
+        heroVideo.src = settings.hero_video_url;
+        heroVideo.classList.remove('hidden');
+        heroPreviewContainer.innerHTML = `<video src="${settings.hero_video_url}" muted playsinline class="w-full h-full object-cover"></video>`;
+    } else if (settings.hero_image_url) {
+        heroImg.src = settings.hero_image_url;
+        heroImg.classList.remove('hidden');
+        heroPreviewContainer.innerHTML = `<img src="${settings.hero_image_url}" class="w-full h-full object-cover">`;
+    } else {
+        heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Pratonton</span>`;
     }
 }
 async function fetchProductsServer({ page=1, term="", category="Semua", sort="popular", ids=null }={}){
@@ -738,15 +752,26 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
   $("#save-hero-btn")?.addEventListener('click', async () => {
       const file = $("#hero-file")?.files?.[0];
-      if (!file) return showToast('Sila pilih fail gambar', 'error');
+      if (!file) return showToast('Sila pilih fail', 'error');
+      
+      const isVideo = file.type.startsWith('video/');
+      const dbKey = isVideo ? 'hero_video_url' : 'hero_image_url';
+      const otherDbKey = isVideo ? 'hero_image_url' : 'hero_video_url';
+
       try {
           const path = `settings/hero-banner.${file.name.split('.').pop()}`;
           const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: true });
           if (uploadError) throw uploadError;
+
           const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-          const { error: dbError } = await supabase.from('settings').upsert({ key: 'hero_image_url', value: publicUrl }, { onConflict: 'key' });
+          
+          const { error: dbError } = await supabase.from('settings').upsert({ key: dbKey, value: publicUrl }, { onConflict: 'key' });
           if (dbError) throw dbError;
-          showToast('Gambar hero disimpan');
+          
+          // Remove the other key to avoid conflicts
+          await supabase.from('settings').delete().eq('key', otherDbKey);
+
+          showToast('Media hero disimpan');
           await fetchSettings();
       } catch (err) { showToast(err.message, 'error'); }
   });
@@ -775,5 +800,20 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           closeAllPanels(); await renderAdmin(); await loadPage();
       } catch (err) { showToast(err.message, 'error'); }
   });
+   $('#hero-file').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            const previewContainer = $('#hero-preview-container');
+            reader.onload = (event) => {
+                if (file.type.startsWith('video/')) {
+                    previewContainer.innerHTML = `<video src="${event.target.result}" muted playsinline class="w-full h-full object-cover"></video>`;
+                } else {
+                    previewContainer.innerHTML = `<img src="${event.target.result}" class="w-full h-full object-cover">`;
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+    });
 });
 
