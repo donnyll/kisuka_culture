@@ -9,7 +9,7 @@
 }
 html.dark {
   --bg-light: #000000; /* Pure Black */
-  --bg-panel-light: #181818; /* Dark Gray */
+  --bg-panel-light: #000000; /* Pure Black for Panels */
   --text-dark: #f9fafb; /* Gray-50 */
   --text-light: #a3a3a3; /* Lighter Gray */
   --border-color: #27272a; /* Zinc-800 */
@@ -24,6 +24,16 @@ html.dark body,
 html.dark #app-container {
   background-color: #000000;
 }
+
+/* Override specific components for pure black dark mode */
+html.dark header,
+html.dark #bottom-nav {
+  background-color: rgba(0, 0, 0, 0.75); /* Semi-transparent black for blur effect */
+}
+html.dark #cart-panel > div:last-child {
+  background-color: #000000;
+}
+
 
 /* Views & Navigation */
 .view { display: none }
