@@ -756,6 +756,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     $$('.admin-tab-content').forEach(c => c.classList.add('hidden')); $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
     if (btn.dataset.tab === 'dashboard') renderAdminDashboard();
     if (btn.dataset.tab === 'orders') renderAdminOrders();
+    if (btn.dataset.tab === 'categories') renderAdminCategories();
   });
   $("#add-product-btn")?.addEventListener("click", () => openProductForm());
   $("#add-category-btn")?.addEventListener('click', async () => {
