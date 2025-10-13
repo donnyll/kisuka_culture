@@ -7,9 +7,9 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 /* ====== Settings ====== */
 const WHATSAPP_NUMBER = '60178450771'; // Replace with your actual WhatsApp number
 const BANK_DETAILS = {
-    name: "Maybank",
-    account: "123456789012",
-    holder: "Kisuka Culture Enterprise"
+    name: "Bank Islam",
+    account: "03148020137354",
+    holder: "Fadhli Zufairi"
 };
 
 /* ====== Helpers ====== */
