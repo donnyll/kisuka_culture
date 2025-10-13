@@ -110,15 +110,20 @@ async function fetchSettings() {
     heroVideo.classList.add('hidden');
     heroImg.classList.add('hidden');
 
+    const cacheBuster = `?t=${new Date().getTime()}`;
+
     if (settings.hero_video_url) {
-        heroVideo.src = settings.hero_video_url;
+        heroVideo.src = `${settings.hero_video_url}${cacheBuster}`;
         heroVideo.classList.remove('hidden');
-        heroPreviewContainer.innerHTML = `<video src="${settings.hero_video_url}" muted playsinline class="w-full h-full object-cover"></video>`;
+        heroPreviewContainer.innerHTML = `<video src="${settings.hero_video_url}${cacheBuster}" muted playsinline class="w-full h-full object-cover"></video>`;
     } else if (settings.hero_image_url) {
-        heroImg.src = settings.hero_image_url;
+        heroImg.src = `${settings.hero_image_url}${cacheBuster}`;
         heroImg.classList.remove('hidden');
-        heroPreviewContainer.innerHTML = `<img src="${settings.hero_image_url}" class="w-full h-full object-cover">`;
+        heroPreviewContainer.innerHTML = `<img src="${settings.hero_image_url}${cacheBuster}" class="w-full h-full object-cover">`;
     } else {
+        // Fallback if no media is set
+        heroImg.classList.remove('hidden');
+        heroImg.src = 'https://placehold.co/1920x1080/000000/FFFFFF?text=kisuka_culture';
         heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Pratonton</span>`;
     }
 }
