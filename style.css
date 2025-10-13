@@ -28,7 +28,7 @@ html.dark #app-container {
 /* Override specific components for pure black dark mode */
 html.dark header,
 html.dark #bottom-nav {
-  background-color: #000000; /* Pure Black */
+  background-color: #000000 !important; /* Pure Black with high priority */
 }
 html.dark #cart-panel > div:last-child {
   background-color: #000000;
