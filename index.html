@@ -77,6 +77,73 @@
           <div id="pagination" class="flex flex-wrap items-center gap-2 justify-center mt-8"></div>
         </section>
       </div>
+      
+      <!-- Custom Order View (NEW SECTION) -->
+      <div id="custom-view" class="view">
+        <section class="max-w-xl mx-auto p-4">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Custom Order</h2>
+          <div class="bg-white dark:bg-gray-800 p-6 rounded-lg border dark:border-gray-700 shadow-xl">
+            <p class="text-gray-600 dark:text-gray-300 mb-6 text-sm">Pilih kategori produk untuk memulakan pesanan *custom* anda, kemudian teruskan perbincangan di WhatsApp.</p>
+            <form id="custom-order-form" class="space-y-5">
+              
+              <!-- Step 1: Category Selection -->
+              <div>
+                <label class="form-label"><span>1. Pilih Kategori Produk</span>
+                  <select id="custom-category-select" class="form-input" required>
+                    <option value="">-- Pilih Kategori --</option>
+                    <!-- Categories will be populated by script.js -->
+                  </select>
+                </label>
+              </div>
+
+              <!-- Step 2: Customization Type -->
+              <div id="custom-type-options" class="space-y-4 pt-3 border-t dark:border-gray-700">
+                  <h3 class="font-bold text-gray-900 dark:text-white">2. Cara Customization</h3>
+                  
+                  <label class="flex items-center space-x-3 bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600 has-[:checked]:bg-cyan-50 dark:has-[:checked]:bg-cyan-900/30 has-[:checked]:border-cyan-500 transition-all">
+                      <input type="radio" name="custom_type" value="new_design" class="form-radio text-cyan-600 h-5 w-5" required>
+                      <span class="text-gray-900 dark:text-white font-semibold flex-grow">Reka Bentuk Baharu (Upload Gambar)</span>
+                  </label>
+
+                  <label class="flex items-center space-x-3 bg-gray-50 dark:bg-gray-700 p-4 rounded-lg border border-gray-200 dark:border-gray-600 has-[:checked]:bg-cyan-50 dark:has-[:checked]:bg-cyan-900/30 has-[:checked]:border-cyan-500 transition-all">
+                      <input type="radio" name="custom_type" value="sold_out" class="form-radio text-cyan-600 h-5 w-5">
+                      <span class="text-gray-900 dark:text-white font-semibold flex-grow">Produk Sold Out (Pilih Item)</span>
+                  </label>
+              </div>
+
+              <!-- Step 3a: Upload Image (Visible when 'new_design' is selected) -->
+              <div id="upload-image-section" class="hidden space-y-3 pt-3 border-t dark:border-gray-700">
+                <label class="form-label"><span>Upload Gambar Rujukan (Pilihan)</span>
+                  <input type="file" id="custom-image-file" name="custom_image" accept="image/*" class="form-file">
+                  <p class="text-xs text-gray-500 mt-1">Gunakan gambar sebagai rujukan untuk customization.</p>
+                </label>
+              </div>
+
+              <!-- Step 3b: Select Sold Out Product (Visible when 'sold_out' is selected) -->
+              <div id="sold-out-product-section" class="hidden space-y-3 pt-3 border-t dark:border-gray-700">
+                <label class="form-label"><span>Pilih Produk Sold Out</span>
+                  <select id="sold-out-select" class="form-input">
+                    <option value="">-- Tiada Produk Sold Out Dalam Kategori Ini --</option>
+                    <!-- Sold out products will be populated by script.js -->
+                  </select>
+                  <p id="sold-out-info" class="text-xs text-gray-500 mt-1">Produk ini akan digunakan sebagai asas customization.</p>
+                </label>
+              </div>
+              
+              <!-- Step 4: Details & Submission -->
+              <div class="space-y-3 pt-3 border-t dark:border-gray-700">
+                  <label class="form-label"><span>Nyatakan Butiran Customization</span>
+                    <textarea id="custom-details" name="details" rows="3" class="form-input" placeholder="Contoh: Saiz M, tukar warna latar belakang kepada hitam..." required></textarea>
+                  </label>
+
+                  <button type="submit" id="custom-whatsapp-btn" class="w-full bg-green-500 text-white font-bold py-3 rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2">
+                    <i data-lucide="send" class="w-4 h-4"></i>Hantar Permintaan ke WhatsApp
+                  </button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
 
       <!-- Wishlist View -->
       <div id="wishlist-view" class="view">
@@ -143,6 +210,8 @@
                   <button data-tab="orders" class="admin-tab">Orders</button>
                   <button data-tab="categories" class="admin-tab">Categories</button>
                   <button data-tab="settings" class="admin-tab">Settings</button>
+                  <!-- NEW ADMIN TAB -->
+                  <button data-tab="chat-templates" class="admin-tab">Chat Templates</button>
                 </nav>
               </div>
 
@@ -169,6 +238,24 @@
               <div id="admin-orders-content" class="admin-tab-content hidden"><div id="admin-order-list"></div></div>
               <div id="admin-categories-content" class="admin-tab-content hidden"><div class="flex items-center gap-2 mb-4"><input id="new-category-name" class="form-input" placeholder="New category name" /><button id="add-category-btn" class="btn-primary">Add</button></div><div id="category-list" class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700"></div></div>
               <div id="admin-settings-content" class="admin-tab-content hidden"><div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4"><h3 class="font-bold text-gray-900 dark:text-white mb-3">Hero Media</h3><div class="flex flex-col sm:flex-row items-center gap-4"><div id="hero-preview-container" class="w-48 h-24 bg-gray-100 dark:bg-gray-700 rounded border dark:border-gray-600 flex items-center justify-center"></div><div class="space-y-2"><input id="hero-file" type="file" accept="video/*,image/*" class="form-file"><button id="save-hero-btn" class="btn-primary">Save</button></div></div></div></div>
+              
+              <!-- NEW ADMIN CHAT TEMPLATES SECTION -->
+              <div id="admin-chat-templates-content" class="admin-tab-content hidden">
+                  <h3 class="text-xl font-bold mb-4 text-gray-900 dark:text-white">Custom WhatsApp Chat Templates</h3>
+                  <div class="text-sm text-gray-600 dark:text-gray-400 mb-4 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700">
+                    <p class="font-semibold mb-1">Nota:</p>
+                    <ul class="list-disc ml-5 space-y-1">
+                      <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$CATEGORY</code> untuk kategori yang dipilih.</li>
+                      <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$TYPE</code> untuk jenis customization (Reka Bentuk Baharu / Sold Out).</li>
+                      <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$DETAILS</code> untuk butiran yang dimasukkan oleh pelanggan.</li>
+                      <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$PRODUCT_NAME</code> jika jenis Sold Out dipilih.</li>
+                      <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$IMAGE_URL</code> jika gambar di-upload.</li>
+                    </ul>
+                  </div>
+                  <div id="chat-templates-list" class="space-y-4">
+                    <!-- Templates will be rendered here -->
+                  </div>
+              </div>
             </div>
         </section>
       </div>
@@ -179,6 +266,8 @@
       <div class="flex justify-around py-2">
         <a href="#" data-view="home" class="nav-link nav-bottom active"><i data-lucide="home" class="w-6 h-6"></i><span class="text-xs mt-1">Home</span></a>
         <a href="#" data-view="all-products" class="nav-link nav-bottom"><i data-lucide="layout-grid" class="w-6 h-6"></i><span class="text-xs mt-1">Products</span></a>
+        <!-- NEW CUSTOM TAB -->
+        <a href="#" data-view="custom" class="nav-link nav-bottom"><i data-lucide="pen-tool" class="w-6 h-6"></i><span class="text-xs mt-1">Custom</span></a>
         <a href="#" data-view="wishlist" class="nav-link nav-bottom relative"><i data-lucide="heart" class="w-6 h-6"></i><span class="text-xs mt-1">Wishlist</span><span id="wishlist-count" class="badge-dot small">0</span></a>
         <button id="mobile-cart-btn" class="nav-bottom relative"><i data-lucide="shopping-cart" class="w-6 h-6"></i><span class="text-xs mt-1">Cart</span><span id="mobile-cart-count" class="badge-dot small">0</span></button>
       </div>
@@ -221,4 +310,3 @@
   <script src="./script.js"></script>
 </body>
 </html>
-

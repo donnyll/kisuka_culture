@@ -39,6 +39,7 @@ let TOTAL_PRODUCTS = 0;
 let CURRENT_FILTER = { category:'All', term:'', sort:'popular' };
 let currentPage = 1;
 const pageSize = 8;
+let CHAT_TEMPLATES = {}; // State to store WhatsApp chat templates
 
 /* ====== THEME ====== */
 function applyTheme(theme) {
@@ -126,12 +127,14 @@ async function fetchSettings() {
         heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Preview</span>`;
     }
 }
-async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null }={}){
+async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null, includeSoldOut=false }={}){
   let query = supabase.from('products').select('*', { count: 'exact' });
   if (ids) { query = query.in('id', ids); } 
   else {
     if (term.trim()) query = query.ilike('name', `%${term}%`);
     if (category && category !== 'All') query = query.eq('category', category);
+    if (!includeSoldOut) query = query.gt('stock', 0); // Filter out sold out unless explicitly asked
+    
     if (sort==='price-asc') query = query.order('price', { ascending:true });
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
@@ -148,6 +151,19 @@ async function fetchCategories() {
     if (error) { showToast("Failed to load categories", "error"); return []; }
     ALL_CATEGORIES = data || [];
     return ALL_CATEGORIES;
+}
+async function fetchChatTemplates() {
+    const { data, error } = await supabase.from('whatsapp_chat_templates').select('*');
+    if (error) { console.error("Error fetching chat templates:", error); return {}; }
+    CHAT_TEMPLATES = data.reduce((acc, t) => {
+        acc[t.category] = t.template;
+        return acc;
+    }, {});
+    return CHAT_TEMPLATES;
+}
+async function updateChatTemplate(category, template) {
+    const { error } = await supabase.from('whatsapp_chat_templates').upsert({ category, template }, { onConflict: 'category' });
+    if (error) throw error;
 }
 async function deleteProduct(id){
   const { error } = await supabase.from('products').delete().eq('id', id); if (error) throw error;
@@ -180,6 +196,13 @@ async function createOrUpdateProduct(record, files){
 async function createOrder(order) {
     const { error } = await supabase.from('orders').insert(order);
     if (error) throw error;
+}
+async function uploadCustomImage(file) {
+    const path = `custom_orders/${uid()}-${file.name.split('.').pop()}`;
+    const { error: uploadError, data: uploadData } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file);
+    if (uploadError) throw uploadError;
+    const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(uploadData.path);
+    return publicUrl;
 }
 
 /* ====== RENDER FUNCTIONS ====== */
@@ -228,6 +251,12 @@ function renderCategories(){
   const wrap = $("#category-filters"); if (!wrap) return;
   const cats = ['All', ...new Set(ALL_CATEGORIES.map(c=>c.name).filter(Boolean).sort())];
   wrap.innerHTML = cats.map(c=> `<button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200 dark:hover:bg-gray-600">${c}</button>`).join('');
+  
+  // Populate Custom Category Select
+  const customCatSelect = $("#custom-category-select");
+  if (customCatSelect) {
+      customCatSelect.innerHTML = '<option value="">-- Pilih Kategori --</option>' + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+  }
 }
 function renderPagination(){
   const box = $("#pagination"); if (!box) return;
@@ -457,6 +486,7 @@ async function switchView(view){
   if (view === 'admin') await handleAdminAccess();
   if (['home', 'all-products'].includes(view)) await loadPage();
   if (view === 'wishlist') await renderWishlist();
+  if (view === 'custom') { await fetchCategories(); await updateCustomFormSoldOutProducts(); } // New logic for custom view
 }
 
 
@@ -522,6 +552,23 @@ async function renderAdminOrders() {
         </div>
     `).join('') + `</div>`;
 }
+async function renderAdminChatTemplates() {
+    await fetchChatTemplates(); // Ensure CHAT_TEMPLATES is updated
+    await fetchCategories();
+    const list = $("#chat-templates-list");
+    if (!list) return;
+
+    list.innerHTML = ALL_CATEGORIES.map(cat => {
+        const template = CHAT_TEMPLATES[cat.name] || 'Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. $DETAILS. $IMAGE_URL. Terima kasih.';
+        return `
+            <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border dark:border-gray-700">
+                <h4 class="font-bold text-gray-900 dark:text-white mb-2">${cat.name}</h4>
+                <textarea data-category="${cat.name}" class="chat-template-input form-input" rows="4">${template}</textarea>
+                <button data-action="save-chat-template" data-category="${cat.name}" class="btn-primary mt-2 text-sm px-3 py-1.5">Save Template</button>
+            </div>
+        `;
+    }).join('') || '<p class="p-4 text-center text-gray-500">No categories to set templates for.</p>';
+}
 async function showOrderDetailModal(id) {
     const { data: order, error } = await supabase.from('orders').select('*').eq('id', id).single();
     if (error || !order) return showToast('Failed to get order details.', 'error');
@@ -584,7 +631,8 @@ async function renderAdmin(){
   
   const pList = $("#admin-product-list");
   if(pList) {
-    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null });
+    // Note: We need ALL products for admin, so setting pageSize to null
+    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null, includeSoldOut: true });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => `<div class="p-3 flex items-center justify-between gap-3">
           <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stock: ${p.stock}</p></div>
@@ -637,6 +685,108 @@ async function openProductForm(id = null) {
     togglePanel('product-form-modal', true);
 }
 
+/* ====== CUSTOM ORDER LOGIC ====== */
+async function updateCustomFormSoldOutProducts() {
+    const category = $("#custom-category-select").value;
+    const soldOutSelect = $("#sold-out-select");
+    const soldOutSection = $("#sold-out-product-section");
+    const customTypeRadios = $$('input[name="custom_type"]');
+    
+    const selectedType = customTypeRadios.find(r => r.checked)?.value;
+    
+    if (!category || selectedType !== 'sold_out') {
+        soldOutSection.classList.add('hidden');
+        return;
+    }
+
+    soldOutSelect.innerHTML = '<option value="">Loading...</option>';
+
+    const { rows: soldOutProducts } = await supabase.from('products')
+        .select('id, name')
+        .eq('category', category)
+        .eq('stock', 0);
+
+    if (soldOutProducts && soldOutProducts.length > 0) {
+        soldOutSelect.innerHTML = soldOutProducts.map(p => 
+            `<option value="${p.id}">${p.name}</option>`
+        ).join('');
+        soldOutSection.classList.remove('hidden');
+    } else {
+        soldOutSelect.innerHTML = '<option value="">-- Tiada Produk Sold Out Dalam Kategori Ini --</option>';
+        soldOutSection.classList.remove('hidden'); // Show empty list
+    }
+}
+async function handleCustomOrderSubmit(e) {
+    e.preventDefault();
+    
+    const category = $("#custom-category-select").value;
+    const customType = $('input[name="custom_type"]:checked')?.value;
+    const details = $("#custom-details").value;
+    const imageFile = $("#custom-image-file").files[0];
+    const soldOutProductId = $("#sold-out-select").value;
+    
+    if (!category || !customType || !details) {
+        return showToast('Sila lengkapkan semua butiran yang diperlukan.', 'error');
+    }
+    
+    let imageUrl = '';
+    let productName = '';
+    
+    const submitBtn = $('#custom-whatsapp-btn');
+    submitBtn.disabled = true;
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Menyediakan mesej...';
+    
+    try {
+        if (customType === 'new_design' && imageFile) {
+            submitBtn.textContent = 'Memuat naik gambar...';
+            imageUrl = await uploadCustomImage(imageFile);
+        } else if (customType === 'sold_out' && soldOutProductId) {
+            const { data: product } = await supabase.from('products').select('name').eq('id', soldOutProductId).single();
+            productName = product?.name || 'Produk Tidak Diketahui';
+        }
+        
+        // 1. Get the template based on category
+        await fetchChatTemplates(); // ensure templates are fresh
+        const template = CHAT_TEMPLATES[category] || CHAT_TEMPLATES['DEFAULT'] || 
+                         "Hi, saya berminat untuk membuat pesanan custom. Kategori: $CATEGORY. Jenis: $TYPE. Butiran: $DETAILS. $IMAGE_URL. Terima kasih.";
+        
+        // 2. Fill the template
+        let message = template
+            .replace(/\$CATEGORY/g, category)
+            .replace(/\$TYPE/g, customType === 'new_design' ? 'Reka Bentuk Baharu' : 'Produk Sold Out')
+            .replace(/\$DETAILS/g, details);
+            
+        // Conditional replacements
+        if (customType === 'sold_out' && productName) {
+            message = message.replace(/\$PRODUCT_NAME/g, `Produk Asas: ${productName}`);
+        } else {
+            message = message.replace(/\$PRODUCT_NAME/g, '');
+        }
+        
+        if (imageUrl) {
+            message = message.replace(/\$IMAGE_URL/g, `Pautan Gambar Rujukan: ${imageUrl}`);
+        } else {
+            message = message.replace(/\$IMAGE_URL/g, 'Tiada gambar rujukan dimuat naik.');
+        }
+
+        const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message.trim())}`;
+        window.open(url, '_blank');
+        
+        // Reset form after successful submission
+        e.target.reset();
+        $("#sold-out-product-section").classList.add('hidden');
+        $("#upload-image-section").classList.add('hidden');
+        showToast('Permintaan custom dihantar ke WhatsApp!', 'success');
+
+    } catch (err) {
+        showToast(err.message || 'Gagal memproses pesanan custom.', 'error');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    }
+}
+
 
 /* ====== PAGE LOAD & INIT ====== */
 async function loadPage(){
@@ -653,7 +803,7 @@ async function loadPage(){
 }
 document.addEventListener('DOMContentLoaded', async ()=>{
   initTheme();
-  await Promise.all([fetchSettings(), loadPage()]);
+  await Promise.all([fetchSettings(), loadPage(), fetchChatTemplates()]); // Fetch templates on load
   renderCart();
   handleHashChange();
   window.addEventListener('hashchange', handleHashChange);
@@ -675,7 +825,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     }
 
     if (actionBtn){
-      const { action, id } = actionBtn.dataset;
+      const { action, id, category } = actionBtn.dataset;
       let p;
       if (id) {
           p = ALL_PRODUCTS.find(x => String(x.id) === String(id));
@@ -713,6 +863,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       }
       if (action==='view-order') showOrderDetailModal(id);
       if (action==='close-modal') closeAllPanels();
+      if (action==='save-chat-template') {
+          const template = e.target.closest('.bg-white')?.querySelector('.chat-template-input')?.value;
+          if (!template) return showToast('Template cannot be empty', 'error');
+          try {
+              await updateChatTemplate(category, template);
+              showToast('Chat template saved!');
+              await fetchChatTemplates();
+          } catch(err) { showToast(err.message || 'Failed to save template', 'error'); }
+      }
     }
 
     if (e.target.closest('#cart-btn') || e.target.closest('#mobile-cart-btn')) togglePanel('cart-panel', true);
@@ -741,7 +900,33 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (e.target.id === 'order-status-select') {
         updateOrderStatus(e.target.dataset.id, e.target.value);
     }
+    // Custom Order form dynamic display logic
+    if (e.target.id === 'custom-category-select') {
+        updateCustomFormSoldOutProducts();
+    }
+    if (e.target.name === 'custom_type') {
+        const type = e.target.value;
+        const uploadSection = $("#upload-image-section");
+        const soldOutSection = $("#sold-out-product-section");
+        
+        // Reset inputs and visibility
+        uploadSection.classList.add('hidden');
+        soldOutSection.classList.add('hidden');
+        $("#custom-image-file").required = false;
+        $("#sold-out-select").required = false;
+
+        if (type === 'new_design') {
+            uploadSection.classList.remove('hidden');
+            $("#custom-image-file").required = true;
+        } else if (type === 'sold_out') {
+            updateCustomFormSoldOutProducts(); // Rerun to show the correct sold-out products
+            $("#sold-out-select").required = true;
+        }
+    }
   });
+
+  // Custom Order Form Submission
+  $("#custom-order-form")?.addEventListener('submit', handleCustomOrderSubmit);
 
 
   /* ====== ADMIN HANDLERS ====== */
@@ -755,17 +940,31 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
     $$('.admin-tab-content').forEach(c => c.classList.add('hidden')); $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
     if (btn.dataset.tab === 'dashboard') renderAdminDashboard();
+    if (btn.dataset.tab === 'products') renderAdmin(); // Rerun to update list
     if (btn.dataset.tab === 'orders') renderAdminOrders();
     if (btn.dataset.tab === 'categories') renderAdminCategories();
+    if (btn.dataset.tab === 'chat-templates') renderAdminChatTemplates(); // NEW
   });
   $("#add-product-btn")?.addEventListener("click", () => openProductForm());
   $("#add-category-btn")?.addEventListener('click', async () => {
       const name = $("#new-category-name").value.trim();
       if (!name) return showToast('Category name is required', 'error');
-      const { error } = await supabase.from('categories').insert({ name });
-      if (error) return showToast(error.message, 'error');
-      showToast('Category added'); $("#new-category-name").value = '';
-      await renderAdminCategories();
+      
+      try {
+          // Add category
+          const { error: catError } = await supabase.from('categories').insert({ name });
+          if (catError) throw catError;
+          
+          // Add default chat template for new category
+          const defaultTemplate = "Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. Jenis customization: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.";
+          await supabase.from('whatsapp_chat_templates').insert({ category: name, template: defaultTemplate });
+          
+          showToast('Category and default template added'); 
+          $("#new-category-name").value = '';
+          await renderAdminCategories();
+      } catch(error) { 
+          showToast(error.message || 'Failed to add category', 'error'); 
+      }
   });
   $("#save-hero-btn")?.addEventListener('click', async () => {
       const file = $("#hero-file")?.files?.[0];
@@ -832,4 +1031,3 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         }
     });
 });
-

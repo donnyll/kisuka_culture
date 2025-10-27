@@ -219,6 +219,3 @@ html.dark .skeleton-card .text { background-color: #4b5563; }
 
 @keyframes slideInUpFadeOut { 0% { opacity: 0; transform: translateY(20px) } 10% { opacity: 1; transform: translateY(0) } 90% { opacity: 1; transform: translateY(0) } 100% { opacity: 0; transform: translateY(20px) } }
 .toast-notification { animation: slideInUpFadeOut 3.5s ease-in-out forwards; }
-
-    
-
