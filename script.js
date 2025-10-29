@@ -150,13 +150,8 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     
     // Updated filter: Only exclude if stock is 0 AND not marked for admin view (includeSoldOut)
     if (!includeSoldOut) {
-        // Option 1: Filter where stock > 0 AND NOT is_sold_out
-        // Option 2 (Simpler based on original code): just check stock > 0, but since we introduce is_sold_out, we should check both
-        query = query.or('and(stock.gt.0,is_sold_out.is.false),stock.gt.0'); 
         // NOTE: Supabase doesn't support complex OR filters easily on non-existing columns. 
-        // Since is_sold_out defaults to FALSE if not set, checking stock > 0 is usually enough for customers.
-        // Let's rely on the stock=0 OR is_sold_out=true to signify 'Sold Out' in client-side rendering.
-        // For query filtering, we will only show products that have stock > 0 AND is_sold_out is false/null.
+        // We filter out explicitly sold out products AND products with 0 stock.
         query = query.neq('is_sold_out', true); 
         query = query.gt('stock', 0); 
     }
@@ -164,7 +159,9 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     if (sort==='price-asc') query = query.order('price', { ascending:true });
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
-    if (page && pageSize) {
+    
+    // Check if pageSize is defined before applying range limit
+    if (page && pageSize && typeof pageSize === 'number') {
       query = query.range((page-1)*pageSize, page*pageSize - 1);
     }
   }
@@ -794,8 +791,8 @@ async function renderAdmin(){
   
   const pList = $("#admin-product-list");
   if(pList) {
-    // Note: We need ALL products for admin, so setting pageSize to null
-    // Changed query to order by name to make the list stable
+    // FIX: Set page and pageSize to null/0 to fetch ALL products for admin view, 
+    // overriding the global pageSize=8 used for customer view.
     const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null, includeSoldOut: true, sort: 'name-asc' });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => {
