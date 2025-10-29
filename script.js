@@ -152,12 +152,10 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     if (term.trim()) query = query.ilike('name', `%${term}%`);
     if (category && category !== 'All') query = query.eq('category', category);
     
-    // Updated filter: Only exclude if stock is 0 AND not marked for admin view (includeSoldOut)
+    // FIX: Show product if it has stock OR is explicitly marked as sold out.
+    // HIDE only if stock is 0 AND it's NOT explicitly marked as sold out.
     if (!includeSoldOut) {
-        // NOTE: Supabase doesn't support complex OR filters easily on non-existing columns. 
-        // We filter out explicitly sold out products AND products with 0 stock.
-        query = query.neq('is_sold_out', true); 
-        query = query.gt('stock', 0); 
+        query = query.or('stock.gt.0,is_sold_out.eq.true'); 
     }
     
     if (sort==='price-asc') query = query.order('price', { ascending:true });
