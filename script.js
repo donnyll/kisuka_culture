@@ -141,9 +141,13 @@ async function fetchSettings() {
         heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Preview</span>`;
     }
 }
-async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null, includeSoldOut=false }={}){
+async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null, includeSoldOut=false, limit=pageSize }={}){ // Menggunakan 'limit' sebagai nama baru untuk had.
   let query = supabase.from('products').select('*', { count: 'exact' });
-  if (ids) { query = query.in('id', ids); } 
+  
+  if (ids) { 
+      query = query.in('id', ids); 
+      limit = null; // Ignore limit when fetching by IDs
+  } 
   else {
     if (term.trim()) query = query.ilike('name', `%${term}%`);
     if (category && category !== 'All') query = query.eq('category', category);
@@ -160,9 +164,9 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
     
-    // Check if pageSize is defined before applying range limit
-    if (page && pageSize && typeof pageSize === 'number') {
-      query = query.range((page-1)*pageSize, page*pageSize - 1);
+    // FIX: Only apply range/limit if 'limit' is a number > 0. If limit is null (used for admin), skip it.
+    if (limit && typeof limit === 'number' && limit > 0) {
+      query = query.range((page-1)*limit, page*limit - 1);
     }
   }
   const { data, count, error } = await query;
@@ -383,7 +387,7 @@ async function renderWishlist() {
   }
   renderSkeletonGrid(grid);
   // Fetch products, ensuring we get the latest stock/price/discount data
-  const { rows } = await fetchProductsServer({ ids: wishlist, includeSoldOut: true }); 
+  const { rows } = await fetchProductsServer({ ids: wishlist, includeSoldOut: true, limit: null }); 
   renderGrid(rows, grid, 'Your wishlist is empty.');
 }
 
@@ -791,10 +795,9 @@ async function renderAdmin(){
   
   const pList = $("#admin-product-list");
   if(pList) {
-    // FIX: Set page and pageSize to null/0 to fetch ALL products for admin view, 
-    // overriding the global pageSize=8 used for customer view.
-    // FIX: Changed sort from 'name-asc' to 'newest' to show newly added products first.
-    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null, includeSoldOut: true, sort: 'newest' });
+    // FIX: Set limit to null (within the fetchProductsServer function call) 
+    // to ensure ALL products are loaded without pagination limits for the admin view.
+    const {rows: adminProducts} = await fetchProductsServer({ page: 1, limit: null, includeSoldOut: true, sort: 'newest' });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => {
           const isSoldOut = p.stock === 0 || p.is_sold_out;
