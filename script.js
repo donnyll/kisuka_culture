@@ -20,6 +20,11 @@ const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
 const firstImageOf = (p) => { const arr = normalizeImages(p?.image_urls); return (arr && arr.length) ? arr[0] : "https://placehold.co/600x600?text=Product"; };
 const normalizeImages = (val) => { if (Array.isArray(val)) return val; if (typeof val === "string") { try { const arr = JSON.parse(val); return Array.isArray(arr) ? arr : []; } catch { return []; } } return []; };
+// New helper to calculate discounted price
+const calculateDiscountedPrice = (price, discount) => {
+    if (!discount || discount <= 0) return price;
+    return price * (1 - discount / 100);
+}
 
 function showToast(msg, type='success'){
   const c = $("#toast-container"); if (!c) return;
@@ -31,7 +36,16 @@ function showToast(msg, type='success'){
 
 /* ====== State ====== */
 const KEYS = { CART:'unmeki_cart', WISHLIST:'unmeki_wishlist', THEME:'unmeki_theme' };
-let cart = JSON.parse(localStorage.getItem(KEYS.CART) || "[]");
+// FIX: ensure cart items have all necessary properties, including discount and stock
+let cart = JSON.parse(localStorage.getItem(KEYS.CART) || "[]").map(item => ({
+    id: String(item.id),
+    name: item.name,
+    price: item.price,
+    quantity: item.quantity,
+    image_url: item.image_url,
+    stock: item.stock || Infinity, // Set stock to Infinity if missing (to prevent Qty 9 limit issue)
+    discount_percent: item.discount_percent || 0 // New discount property
+}));
 let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let ALL_PRODUCTS = [];
 let ALL_CATEGORIES = [];
@@ -133,7 +147,19 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
   else {
     if (term.trim()) query = query.ilike('name', `%${term}%`);
     if (category && category !== 'All') query = query.eq('category', category);
-    if (!includeSoldOut) query = query.gt('stock', 0); // Filter out sold out unless explicitly asked
+    
+    // Updated filter: Only exclude if stock is 0 AND not marked for admin view (includeSoldOut)
+    if (!includeSoldOut) {
+        // Option 1: Filter where stock > 0 AND NOT is_sold_out
+        // Option 2 (Simpler based on original code): just check stock > 0, but since we introduce is_sold_out, we should check both
+        query = query.or('and(stock.gt.0,is_sold_out.is.false),stock.gt.0'); 
+        // NOTE: Supabase doesn't support complex OR filters easily on non-existing columns. 
+        // Since is_sold_out defaults to FALSE if not set, checking stock > 0 is usually enough for customers.
+        // Let's rely on the stock=0 OR is_sold_out=true to signify 'Sold Out' in client-side rendering.
+        // For query filtering, we will only show products that have stock > 0 AND is_sold_out is false/null.
+        query = query.neq('is_sold_out', true); 
+        query = query.gt('stock', 0); 
+    }
     
     if (sort==='price-asc') query = query.order('price', { ascending:true });
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
@@ -185,9 +211,22 @@ async function createOrUpdateProduct(record, files){
     }
     const finalImageUrls = [...newImageUrls, ...existingImages];
     const payload = {
-        name: record.name, description: record.description, price: Number(record.price),
-        category: record.category, stock: Number(record.stock), image_urls: finalImageUrls
+        name: record.name, 
+        description: record.description, 
+        price: Number(record.price),
+        category: record.category, 
+        stock: Number(record.stock), 
+        image_urls: finalImageUrls,
+        // NEW FIELDS
+        discount_percent: Number(record.discount_percent) || 0,
+        is_sold_out: record.is_sold_out === 'true',
     };
+    
+    // Validation for discount
+    if (payload.discount_percent < 0 || payload.discount_percent > 100) {
+        throw new Error("Discount percentage must be between 0 and 100.");
+    }
+
     const { error } = record.id
         ? await supabase.from('products').update(payload).eq('id', record.id)
         : await supabase.from('products').insert(payload);
@@ -207,11 +246,21 @@ async function uploadCustomImage(file) {
 
 /* ====== RENDER FUNCTIONS ====== */
 const productBadge = p => {
-    if (p.stock === 0) return '<span class="badge-stock badge-stock-out">Out of Stock</span>';
+    // Check stock or is_sold_out status
+    const isSoldOut = p.stock === 0 || p.is_sold_out;
+    if (isSoldOut) return '<span class="badge-stock badge-stock-out">Sold Out</span>';
+    if (p.discount_percent && p.discount_percent > 0) return `<span class="badge-stock badge-discount">-${p.discount_percent}%</span>`;
     return '';
 };
 const productCard = p => {
   const isWishlisted = wishlist.includes(String(p.id));
+  const isSoldOut = p.stock === 0 || p.is_sold_out;
+  const discountedPrice = calculateDiscountedPrice(p.price, p.discount_percent);
+
+  const priceHTML = p.discount_percent > 0
+    ? `<div class="flex items-baseline gap-2"><p class="text-base font-extrabold text-red-600 dark:text-red-400">${money(discountedPrice)}</p><p class="text-xs line-through text-gray-500 dark:text-gray-400">${money(p.price)}</p></div>`
+    : `<p class="text-base font-extrabold text-gray-900 dark:text-white">${money(p.price)}</p>`;
+
   return `
   <div class="product-card bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden group relative flex flex-col">
     <div data-action="view-detail" data-id="${p.id}" class="cursor-pointer">
@@ -222,7 +271,7 @@ const productCard = p => {
       </div>
       <div class="product-image-container group-hover:scale-105 transition-transform duration-300">
         <img src="${firstImageOf(p)}" alt="${p.name}">
-        ${p.stock===0 ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">SOLD OUT</span></div>':''}
+        ${isSoldOut ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">SOLD OUT</span></div>':''}
       </div>
     </div>
     <div class="p-4 flex flex-col flex-grow">
@@ -231,10 +280,10 @@ const productCard = p => {
           <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100 truncate flex-grow">${p.name}</h4>
           ${productBadge(p)}
         </div>
-        <p class="text-base font-extrabold text-gray-900 dark:text-white">${money(p.price)}</p>
+        ${priceHTML}
       </div>
       <div class="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
-        <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Add to Cart</button>
+        <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Add to Cart</button>
       </div>
     </div>
   </div>`;
@@ -279,8 +328,15 @@ async function renderProductDetail(id) {
     }
 
     const isWishlisted = wishlist.includes(String(p.id));
+    const isSoldOut = p.stock === 0 || p.is_sold_out;
     const allImages = normalizeImages(p.image_urls);
     const mainImage = allImages.length > 0 ? allImages[0] : 'https://placehold.co/800x800?text=Image';
+    const discountedPrice = calculateDiscountedPrice(p.price, p.discount_percent);
+    
+    const priceHTML = p.discount_percent > 0
+        ? `<div class="flex items-baseline gap-3"><p class="text-3xl font-bold text-red-600 dark:text-red-400">${money(discountedPrice)}</p><p class="text-xl line-through text-gray-500 dark:text-gray-400">${money(p.price)}</p><span class="text-base font-semibold text-red-600 dark:text-red-400">(${p.discount_percent}% OFF)</span></div>`
+        : `<p class="text-3xl font-bold text-gray-900 dark:text-white my-4">${money(p.price)}</p>`;
+
 
     view.innerHTML = `
     <section class="max-w-5xl mx-auto p-4">
@@ -298,11 +354,12 @@ async function renderProductDetail(id) {
       <div class="text-gray-800 dark:text-gray-200 mt-4">
         <p class="text-gray-500 dark:text-gray-400 text-sm">Category: ${p.category}</p>
         <h2 class="text-3xl font-extrabold text-gray-900 dark:text-white mt-1">${p.name}</h2>
-        <p class="text-3xl font-bold text-gray-900 dark:text-white my-4">${money(p.price)}</p>
-        <p class="text-gray-600 dark:text-gray-300 leading-relaxed">${p.description || 'No description available.'}</p>
-        ${p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">SOLD OUT</p>`:''}
+        ${priceHTML}
+        ${isSoldOut ? `<p class="text-red-600 font-bold text-lg mt-4">SOLD OUT</p>`:''}
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Available Stock: ${p.stock}</p>
+        <p class="text-gray-600 dark:text-gray-300 leading-relaxed mt-4">${p.description || 'No description available.'}</p>
         <div class="flex gap-3 mt-6">
-          <button ${p.stock===0?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">Add to Cart</button>
+          <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">Add to Cart</button>
           <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border border-gray-300 dark:border-gray-600 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800">
             <i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600 dark:text-gray-300'}"></i>
           </button>
@@ -328,23 +385,34 @@ async function renderWishlist() {
     return;
   }
   renderSkeletonGrid(grid);
-  const { rows } = await fetchProductsServer({ ids: wishlist });
+  // Fetch products, ensuring we get the latest stock/price/discount data
+  const { rows } = await fetchProductsServer({ ids: wishlist, includeSoldOut: true }); 
   renderGrid(rows, grid, 'Your wishlist is empty.');
 }
 
 /* ====== CART & PAYMENT LOGIC ====== */
-const cartTotal = () => cart.reduce((s,i)=> s + i.price*i.quantity, 0);
+const cartTotal = () => cart.reduce((s,i)=> {
+    const finalPrice = calculateDiscountedPrice(i.price, i.discount_percent);
+    return s + finalPrice * i.quantity;
+}, 0);
+
 function renderCart(){
   const box = $("#cart-items");
   if (box){
     if (cart.length===0) box.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center"><i data-lucide="shopping-basket" class="w-16 h-16 text-gray-300 dark:text-gray-600"></i><p class="text-gray-500 dark:text-gray-400 mt-4">Your cart is empty.</p></div>`;
     else {
-      box.innerHTML = cart.map(it=>`
+      box.innerHTML = cart.map(it=>{
+        const discountedPrice = calculateDiscountedPrice(it.price, it.discount_percent);
+        const priceHTML = it.discount_percent > 0 
+            ? `<div class="flex flex-col"><p class="text-sm font-bold text-red-500">${money(discountedPrice * it.quantity)}</p><p class="text-xs line-through text-gray-500">${money(it.price * it.quantity)}</p></div>`
+            : `<p class="text-sm font-bold my-1">${money(it.price * it.quantity)}</p>`;
+
+        return `
         <div class="flex items-start gap-4 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
           <img src="${it.image_url || 'https://placehold.co/80x80'}" alt="${it.name}" class="w-20 h-20 object-cover rounded-md border">
           <div class="flex-grow text-gray-800 dark:text-gray-200">
-            <p class="text-sm font-semibold">${it.name}</p>
-            <p class="text-sm font-bold my-1">${money(it.price*it.quantity)}</p>
+            <p class="text-sm font-semibold">${it.name} ${it.discount_percent > 0 ? `(${it.discount_percent}% OFF)` : ''}</p>
+            ${priceHTML}
             <div class="flex items-center gap-3 my-1">
               <button data-action="decrement" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">-</button>
               <span class="font-bold text-sm">${it.quantity}</span>
@@ -352,7 +420,7 @@ function renderCart(){
             </div>
           </div>
           <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-900/50"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
-        </div>`).join('');
+        </div>`}).join('');
     }
   }
   const cartItems = cart.reduce((s,i)=>s+i.quantity,0);
@@ -363,17 +431,70 @@ function renderCart(){
   localStorage.setItem(KEYS.CART, JSON.stringify(cart));
   iconify();
 }
-function addToCart(p){
-  const it = cart.find(x=>String(x.id)===String(p.id));
-  if (it){
-    if (it.quantity < p.stock){ it.quantity++; showToast(`${p.name} added to cart!`); }
-    else return showToast(`Not enough stock for ${p.name}!`,'error');
-  } else {
-    if (p.stock > 0) {
-      cart.push({ id:String(p.id), name:p.name, price:p.price, image_url:firstImageOf(p), stock:p.stock, quantity:1 });
-      showToast(`${p.name} added to cart!`);
-    } else return showToast(`${p.name} is out of stock!`, 'error');
+async function addToCart(p){
+  // Fix: The original logic failed to retrieve the full product object when adding from ALL_PRODUCTS.
+  // We need to fetch the latest product data before adding to cart to fix the duplication and stock issues.
+  let fullProduct;
+  if (p.id) {
+    const { data } = await supabase.from('products').select('*').eq('id', p.id).single();
+    fullProduct = data;
   }
+  if (!fullProduct) {
+    return showToast("Gagal memuatkan maklumat produk.", 'error');
+  }
+
+  const it = cart.find(x=>String(x.id)===String(fullProduct.id));
+  const isSoldOut = fullProduct.stock === 0 || fullProduct.is_sold_out;
+  
+  if (isSoldOut) {
+    return showToast(`${fullProduct.name} telah habis stok!`, 'error');
+  }
+  
+  if (it){
+    // FIX: Check against the latest stock and allow quantity greater than 9
+    if (it.quantity < fullProduct.stock){ 
+        it.quantity++; 
+        showToast(`${fullProduct.name} ditambahkan ke cart!`); 
+    }
+    else return showToast(`Stok tidak mencukupi untuk ${fullProduct.name}!`, 'error');
+  } else {
+    // FIX: Ensure all new properties (discount, stock) are saved in cart
+    if (fullProduct.stock > 0) {
+      cart.push({ 
+          id: String(fullProduct.id), 
+          name: fullProduct.name, 
+          price: fullProduct.price, 
+          image_url: firstImageOf(fullProduct), 
+          stock: fullProduct.stock, 
+          discount_percent: fullProduct.discount_percent || 0,
+          quantity: 1 
+      });
+      showToast(`${fullProduct.name} ditambahkan ke cart!`);
+    } else return showToast(`${fullProduct.name} telah habis stok!`, 'error');
+  }
+  
+  // FIX: Remove duplicates caused by previous bug
+  const uniqueCart = [];
+  const ids = new Set();
+  for (const item of cart) {
+    if (!ids.has(item.id)) {
+      uniqueCart.push(item);
+      ids.add(item.id);
+    } else {
+      // If duplicate found, merge quantities
+      const existing = uniqueCart.find(i => i.id === item.id);
+      if (existing) {
+          const newQty = existing.quantity + item.quantity;
+          if (newQty <= existing.stock) {
+             existing.quantity = newQty;
+          } else {
+             existing.quantity = existing.stock;
+             showToast(`Quantity adjusted to maximum stock for ${item.name}.`, 'error');
+          }
+      }
+    }
+  }
+  cart = uniqueCart;
   renderCart();
   const cartBtn = $("#cart-btn");
   if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
@@ -381,10 +502,29 @@ function addToCart(p){
 const removeFromCart = id => { cart = cart.filter(i=>String(i.id)!==String(id)); renderCart(); };
 async function updateQuantity(id, d){
   const it = cart.find(i=>String(i.id)===String(id)); if (!it) return;
-  const q = it.quantity + d; if (q<=0) return removeFromCart(id);
-  const p = ALL_PRODUCTS.find(x => String(x.id) === String(id)) || it;
-  if (q > p.stock) return showToast(`Not enough stock for ${p.name}!`,'error');
-  it.quantity=q; renderCart();
+  const q = it.quantity + d; 
+  if (q<=0) return removeFromCart(id);
+  
+  // Get latest product data (for stock check and to fix missing stock issue)
+  let fullProduct;
+  const productInAll = ALL_PRODUCTS.find(x => String(x.id) === String(id));
+  if (productInAll) {
+    fullProduct = productInAll;
+  } else {
+    const { data } = await supabase.from('products').select('stock, name').eq('id', id).single();
+    fullProduct = data;
+  }
+  
+  // FIX: Use the stock from the fetched product or from cart item (as fallback)
+  const stockLimit = fullProduct?.stock !== undefined ? fullProduct.stock : it.stock;
+
+  if (q > stockLimit) return showToast(`Stok maksimum untuk ${it.name} adalah ${stockLimit}!`, 'error');
+  
+  it.quantity=q; 
+  // FIX: Update the stock property in the cart item as well if we fetched a fresh one
+  if (fullProduct?.stock !== undefined) it.stock = fullProduct.stock;
+
+  renderCart();
 }
 function goToPayment() {
     if (cart.length === 0) {
@@ -410,7 +550,7 @@ async function handleOrderSubmit(e) {
     delete customer_details.receipt;
 
     try {
-        if (!receiptFile || receiptFile.size === 0) throw new Error("Please upload the payment receipt.");
+        if (!receiptFile || receiptFile.size === 0) throw new Error("Sila muat naik resit pembayaran.");
         
         const receiptPath = `receipts/${uid()}-${receiptFile.name}`;
         const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(receiptPath, receiptFile);
@@ -421,7 +561,15 @@ async function handleOrderSubmit(e) {
         const order = {
             id: uid().toUpperCase(),
             customer_details,
-            items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity })),
+            // FIX: Save discounted price to items list for historical record
+            items: cart.map(i => ({ 
+                id: i.id, 
+                name: i.name, 
+                original_price: i.price, 
+                price: calculateDiscountedPrice(i.price, i.discount_percent), 
+                quantity: i.quantity,
+                discount_percent: i.discount_percent || 0 
+            })),
             total: cartTotal(),
             status: 'Pending',
             receipt_url
@@ -429,6 +577,7 @@ async function handleOrderSubmit(e) {
         
         await createOrder(order);
 
+        // Update stock only for items that still exist in the database and are not marked as sold out
         const stockUpdates = cart.map(item =>
             supabase.from('products').update({ stock: item.stock - item.quantity }).eq('id', item.id)
         );
@@ -437,11 +586,11 @@ async function handleOrderSubmit(e) {
         cart = [];
         localStorage.removeItem(KEYS.CART);
         renderCart();
-        showToast('Your order has been submitted successfully!');
+        showToast('Pesanan anda telah dihantar dengan jayanya!');
         switchView('home');
 
     } catch (err) {
-        showToast(err.message || 'Failed to submit order.', 'error');
+        showToast(err.message || 'Gagal menghantar pesanan.', 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = 'Confirm & Submit';
@@ -538,19 +687,22 @@ async function renderAdminOrders() {
         return;
     }
 
-    list.innerHTML = `<div class="space-y-3">` + orders.map(o => `
+    list.innerHTML = `<div class="space-y-3">` + orders.map(o => {
+        const isCustomOrder = o.items.length === 0; // Simple heuristic for custom order
+        const totalAmount = money(o.total);
+        return `
         <div class="order-card">
             <div>
                 <p class="font-bold text-gray-900 dark:text-white">${o.customer_details.name}</p>
                 <p class="text-xs text-gray-500">#${o.id.slice(-6)} • ${new Date(o.created_at).toLocaleString()}</p>
             </div>
             <div class="text-right">
-                <p class="font-semibold text-gray-800 dark:text-gray-200">${money(o.total)}</p>
+                <p class="font-semibold text-gray-800 dark:text-gray-200">${totalAmount}</p>
                 <p class="text-xs font-medium ${o.status === 'Shipped' ? 'text-green-500' : 'text-yellow-500'}">${o.status}</p>
             </div>
             <button data-action="view-order" data-id="${o.id}" class="btn-light !py-1 !px-3 text-xs">View</button>
         </div>
-    `).join('') + `</div>`;
+    `}).join('') + `</div>`;
 }
 async function renderAdminChatTemplates() {
     await fetchChatTemplates(); // Ensure CHAT_TEMPLATES is updated
@@ -559,7 +711,7 @@ async function renderAdminChatTemplates() {
     if (!list) return;
 
     list.innerHTML = ALL_CATEGORIES.map(cat => {
-        const template = CHAT_TEMPLATES[cat.name] || 'Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. $DETAILS. $IMAGE_URL. Terima kasih.';
+        const template = CHAT_TEMPLATES[cat.name] || 'Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. Jenis customization: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.';
         return `
             <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border dark:border-gray-700">
                 <h4 class="font-bold text-gray-900 dark:text-white mb-2">${cat.name}</h4>
@@ -574,6 +726,17 @@ async function showOrderDetailModal(id) {
     if (error || !order) return showToast('Failed to get order details.', 'error');
 
     const content = $('#order-detail-content');
+    
+    // Detailed items list in modal
+    const itemsListHtml = order.items.map(item => {
+        const finalPrice = calculateDiscountedPrice(item.original_price || item.price, item.discount_percent);
+        const priceDisplay = item.discount_percent > 0 
+            ? `<span class="text-red-500">${money(finalPrice)}</span> <span class="line-through text-gray-400 text-xs">${money(item.original_price || item.price)}</span>`
+            : money(item.price);
+
+        return `<li>${item.quantity}x ${item.name} - ${priceDisplay}</li>`;
+    }).join('');
+
     content.innerHTML = `
         <div class="flex justify-between items-start">
             <div>
@@ -596,7 +759,7 @@ async function showOrderDetailModal(id) {
             <div>
                 <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Items Ordered</h4>
                 <ul class="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 space-y-1">
-                    ${order.items.map(item => `<li>${item.quantity}x ${item.name} - ${money(item.price * item.quantity)}</li>`).join('')}
+                    ${itemsListHtml}
                 </ul>
                 <p class="font-bold text-right mt-2 text-gray-800 dark:text-gray-200">Total: ${money(order.total)}</p>
             </div>
@@ -632,12 +795,36 @@ async function renderAdmin(){
   const pList = $("#admin-product-list");
   if(pList) {
     // Note: We need ALL products for admin, so setting pageSize to null
-    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null, includeSoldOut: true });
+    // Changed query to order by name to make the list stable
+    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null, includeSoldOut: true, sort: 'name-asc' });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
-      ${adminProducts.map(p => `<div class="p-3 flex items-center justify-between gap-3">
-          <div class="flex-grow"><p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p><p class="text-xs text-gray-500">${p.category} • ${money(p.price)} • Stock: ${p.stock}</p></div>
-          <div class="flex-shrink-0"><button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button><button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Delete</button></div>
-      </div>`).join('') || '<p class="p-4 text-center text-gray-500">No products.</p>'}
+      ${adminProducts.map(p => {
+          const isSoldOut = p.stock === 0 || p.is_sold_out;
+          const discountedPrice = calculateDiscountedPrice(p.price, p.discount_percent);
+          const priceDisplay = p.discount_percent > 0 
+              ? `<span class="text-red-500">${money(discountedPrice)}</span> <span class="line-through text-gray-500 text-xs">${money(p.price)}</span>`
+              : money(p.price);
+
+          const statusBadge = isSoldOut 
+              ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400">SOLD OUT</span>`
+              : p.stock < 5 
+              ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400">LOW STOCK (${p.stock})</span>`
+              : `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400">IN STOCK (${p.stock})</span>`;
+
+          const discountBadge = p.discount_percent > 0
+              ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-400">-${p.discount_percent}%</span>`
+              : '';
+
+          return `<div class="p-3 flex items-center justify-between gap-3">
+              <div class="flex-grow">
+                  <p class="font-semibold text-gray-800 dark:text-gray-100">${p.name} ${discountBadge}</p>
+                  <p class="text-xs text-gray-500">${p.category} • ${priceDisplay} • ${statusBadge}</p>
+              </div>
+              <div class="flex-shrink-0">
+                  <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button>
+                  <button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Delete</button>
+              </div>
+          </div>`}).join('') || '<p class="p-4 text-center text-gray-500">No products.</p>'}
     </div>`;
   }
 }
@@ -670,12 +857,23 @@ async function openProductForm(id = null) {
         p = data;
     }
     
+    // Default values for new product
+    $("#product-is-sold-out-false").checked = true;
+    $("#product-discount-percent").value = 0;
+
     if (p) {
         $("#product-form-title").textContent = 'Update Product';
-        $("#product-id").value = p.id; $("#product-name").value = p.name;
-        $("#product-price").value = p.price; $("#product-stock").value = p.stock;
+        $("#product-id").value = p.id; 
+        $("#product-name").value = p.name;
+        $("#product-price").value = p.price; 
+        $("#product-stock").value = p.stock;
         $("#product-category").value = p.category || '';
         $("#product-description").value = p.description || '';
+        
+        // NEW FIELD VALUES
+        $("#product-discount-percent").value = p.discount_percent || 0;
+        $(`#product-is-sold-out-${p.is_sold_out ? 'true' : 'false'}`).checked = true;
+
         const existingImages = normalizeImages(p.image_urls);
         $("#product-existing-images").value = JSON.stringify(existingImages);
         renderImagePreviews(existingImages, $("#product-images-preview"));
@@ -701,13 +899,20 @@ async function updateCustomFormSoldOutProducts() {
 
     soldOutSelect.innerHTML = '<option value="">Loading...</option>';
 
-    const { rows: soldOutProducts } = await supabase.from('products')
+    // Query for products that are sold out (stock = 0 OR is_sold_out = true)
+    const { data: soldOutProducts, error } = await supabase.from('products')
         .select('id, name')
         .eq('category', category)
-        .eq('stock', 0);
+        .or('stock.eq.0,is_sold_out.eq.true'); // Combine stock check and sold_out flag
 
+    if (error) {
+        soldOutSelect.innerHTML = '<option value="">-- Failed to load products --</option>';
+        console.error("Error fetching sold out products:", error);
+        return;
+    }
+    
     if (soldOutProducts && soldOutProducts.length > 0) {
-        soldOutSelect.innerHTML = soldOutProducts.map(p => 
+        soldOutSelect.innerHTML = '<option value="">-- Pilih Produk --</option>' + soldOutProducts.map(p => 
             `<option value="${p.id}">${p.name}</option>`
         ).join('');
         soldOutSection.classList.remove('hidden');
@@ -793,7 +998,8 @@ async function loadPage(){
   const grid = $("#all-product-grid");
   renderSkeletonGrid(grid);
   await fetchCategories();
-  const { rows, count } = await fetchProductsServer({ page: currentPage, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort });
+  // Changed fetchProductsServer call to only show IN STOCK items for general viewing
+  const { rows, count } = await fetchProductsServer({ page: currentPage, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort, includeSoldOut: false }); 
   ALL_PRODUCTS = rows;
   TOTAL_PRODUCTS = count;
   renderCategories();
@@ -828,11 +1034,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const { action, id, category } = actionBtn.dataset;
       let p;
       if (id) {
-          p = ALL_PRODUCTS.find(x => String(x.id) === String(id));
-          if (!p) {
-              const { data } = await supabase.from('products').select('*').eq('id', id).single();
-              p = data;
-          }
+          // Changed to fetch product from server to ensure latest data (e.g. discount)
+          const { data } = await supabase.from('products').select('*').eq('id', id).single();
+          p = data;
       }
 
       if (action==='add-to-cart' && p) addToCart(p);
@@ -849,12 +1053,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       }
       if (action==='edit-product') openProductForm(id);
       if (action==='delete-product'){
-        if (!confirm("Delete this product?")) return;
+        // Changed alert to confirm
+        if (!window.confirm("Delete this product?")) return;
         try { await deleteProduct(id); showToast('Product deleted'); await renderAdmin(); await loadPage(); }
         catch(err) { showToast(err.message||'Failed to delete','error'); }
       }
       if (action==='delete-category') {
-          if (!confirm("Delete this category?")) return;
+          // Changed alert to confirm
+          if (!window.confirm("Delete this category?")) return;
           try {
               const { error } = await supabase.from('categories').delete().eq('id', id);
               if (error) throw error;
@@ -881,9 +1087,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (e.target.closest('#checkout-btn')) goToPayment();
     if (e.target.closest('#whatsapp-btn')) {
         if (cart.length === 0) return showToast('Your cart is empty!', 'error');
-        const itemsList = cart.map(item => `• ${item.quantity}x ${item.name} (${money(item.price * item.quantity)})`).join('\n');
-        const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-        const message = `Hi, I'm interested in ordering the following items:\n\n${itemsList}\n\n*Total: ${money(total)}*\n\nCan you confirm stock availability? Thank you.`;
+        const itemsList = cart.map(item => {
+            const finalPrice = calculateDiscountedPrice(item.price, item.discount_percent);
+            const discountText = item.discount_percent > 0 ? ` (Discount: ${item.discount_percent}%)` : '';
+            return `• ${item.quantity}x ${item.name} (${money(finalPrice * item.quantity)}) ${discountText}`;
+        }).join('\n');
+
+        const total = cartTotal();
+        const message = `Hi, saya berminat untuk membuat pesanan item berikut:\n\n${itemsList}\n\n*Total: ${money(total)}*\n\nBoleh sahkan stok tersedia? Terima kasih.`;
         const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
         closeAllPanels();
@@ -1004,9 +1215,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $("#product-form")?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const record = {
-          id: $("#product-id").value, name: $("#product-name").value, price: $("#product-price").value,
-          stock: $("#product-stock").value, category: $("#product-category").value, description: $("#product-description").value,
-          image_urls: $("#product-existing-images").value
+          id: $("#product-id").value, 
+          name: $("#product-name").value, 
+          price: $("#product-price").value,
+          stock: $("#product-stock").value, 
+          category: $("#product-category").value, 
+          description: $("#product-description").value,
+          image_urls: $("#product-existing-images").value,
+          // NEW FIELDS
+          discount_percent: $("#product-discount-percent").value,
+          is_sold_out: $('input[name="is_sold_out"]:checked').value,
       };
       const files = $("#product-images-input").files;
       try {

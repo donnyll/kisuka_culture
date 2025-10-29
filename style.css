@@ -86,6 +86,16 @@ html.dark .badge-stock-low { background-color: #450a0a; color: #fca5a5; }
 .badge-stock-out { background-color: #f3f4f6; color: #4b5563; }
 html.dark .badge-stock-out { background-color: #374151; color: #d1d5db; }
 
+/* NEW: Discount Badge */
+.badge-discount {
+    background-color: #ecfeff; /* Cyan-50 */
+    color: #0e7490; /* Cyan-700 */
+}
+html.dark .badge-discount {
+    background-color: #164e63; /* Cyan-800 */
+    color: #67e8f9; /* Cyan-300 */
+}
+
 /* Panels & Modals */
 .panel { position: fixed; background: var(--bg-panel-light); z-index: 40; transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1) }
 .panel.right { top:0; right:0; height:100%; width:100%; max-width: 24rem; transform: translateX(100%); box-shadow: -10px 0 25px rgba(0,0,0,0.1); }
