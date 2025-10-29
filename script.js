@@ -793,7 +793,8 @@ async function renderAdmin(){
   if(pList) {
     // FIX: Set page and pageSize to null/0 to fetch ALL products for admin view, 
     // overriding the global pageSize=8 used for customer view.
-    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null, includeSoldOut: true, sort: 'name-asc' });
+    // FIX: Changed sort from 'name-asc' to 'newest' to show newly added products first.
+    const {rows: adminProducts} = await fetchProductsServer({ page: 1, pageSize: null, includeSoldOut: true, sort: 'newest' });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => {
           const isSoldOut = p.stock === 0 || p.is_sold_out;
