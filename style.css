@@ -92,6 +92,32 @@ html.dark .badge-stock-out { background-color: #374151; color: #d1d5db; }
     margin-right: 4px; /* Space between discount and wishlist/other badges */
 }
 
+/* Sold Out Button (Aesthetic Improvement) */
+.btn-sold-out {
+    /* Menggunakan dark color palette yang sedap mata memandang */
+    background-color: #374151; /* Gray-700 / Dark Blue-Gray */
+    color: #f3f4f6; /* Light Gray */
+    font-weight: 700;
+    font-size: 0.8rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #4b5563; /* Border untuk kontras */
+    opacity: 0.9;
+    transition: all 0.2s;
+}
+.btn-sold-out:hover {
+    background-color: #4b5563;
+    opacity: 1;
+}
+html.dark .btn-sold-out {
+    background-color: #27272a; /* Zinc-800 */
+    color: #d1d5db;
+    border-color: #3f3f46; /* Zinc-700 */
+}
+html.dark .btn-sold-out:hover {
+    background-color: #3f3f46;
+}
+
 
 /* Panels & Modals */
 .panel { position: fixed; background: var(--bg-panel-light); z-index: 40; transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1) }

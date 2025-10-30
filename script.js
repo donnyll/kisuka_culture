@@ -281,7 +281,7 @@ const productCard = p => {
         ${productPriceHTML(p)}
       </div>
       <div class="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
-        <button ${!isAvailable?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">
+        <button ${!isAvailable?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors ${p.is_sold_out ? 'btn-sold-out' : ''}">
           ${p.is_sold_out ? 'Sold Out (Custom Only)' : 'Add to Cart'}
         </button>
       </div>
@@ -360,7 +360,7 @@ async function renderProductDetail(id) {
         ${p.stock > 0 && !p.is_sold_out ? `<p class="text-green-600 font-bold text-lg mt-4">Available Stock: ${p.stock}</p>` : ''}
         
         <div class="flex gap-3 mt-6">
-          <button ${!isAvailable?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">
+          <button ${!isAvailable?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors ${p.is_sold_out ? 'btn-sold-out' : ''}">
             ${p.is_sold_out ? 'Sold Out (Custom Only)' : 'Add to Cart'}
           </button>
           <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border border-gray-300 dark:border-gray-600 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800">
