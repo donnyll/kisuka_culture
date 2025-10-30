@@ -49,11 +49,8 @@ let cart = JSON.parse(localStorage.getItem(KEYS.CART) || "[]").map(item => ({
 let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let ALL_PRODUCTS = [];
 let ALL_CATEGORIES = [];
-let TOTAL_PRODUCTS = 0;
 let CURRENT_FILTER = { category:'All', term:'', sort:'popular' };
-let currentPage = 1;
-const pageSize = 8;
-let CHAT_TEMPLATES = {}; // State to store WhatsApp chat templates
+// Removed TOTAL_PRODUCTS, currentPage, and pageSize for no-pagination setup
 
 /* ====== THEME ====== */
 function applyTheme(theme) {
@@ -141,7 +138,8 @@ async function fetchSettings() {
         heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Preview</span>`;
     }
 }
-async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null, includeSoldOut=false, limit=pageSize }={}){ // Menggunakan 'limit' sebagai nama baru untuk had.
+// Updated fetchProductsServer to use 'limit' instead of 'pageSize' and handle null limit correctly
+async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null, includeSoldOut=false, limit=null }={}){ 
   let query = supabase.from('products').select('*', { count: 'exact' });
   
   if (ids) { 
@@ -153,7 +151,7 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     if (category && category !== 'All') query = query.eq('category', category);
     
     // FIX: Show product if it has stock OR is explicitly marked as sold out.
-    // HIDE only if stock is 0 AND it's NOT explicitly marked as sold out.
+    // HIDE only if stock is 0 AND it's NOT explicitly marked as sold out (for customer view).
     if (!includeSoldOut) {
         query = query.or('stock.gt.0,is_sold_out.eq.true'); 
     }
@@ -162,9 +160,10 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
     
-    // FIX: Only apply range/limit if 'limit' is a number > 0. If limit is null (used for admin), skip it.
+    // FIX: Only apply range/limit if 'limit' is a number > 0. If limit is null (for all products), skip it.
     if (limit && typeof limit === 'number' && limit > 0) {
-      query = query.range((page-1)*limit, page*limit - 1);
+        // Since we removed pageSize, we need a hardcoded limit for things like "featured" products
+        query = query.range((page-1)*limit, page*limit - 1);
     }
   }
   const { data, count, error } = await query;
@@ -288,7 +287,8 @@ const productCard = p => {
   </div>`;
 };
 const skeletonCard = () => `<div class="skeleton-card"><div class="img"></div><div class="p-4 space-y-3"><div class="text w-3/4"></div><div class="text w-1/2"></div><div class="pt-4 mt-auto"><div class="text w-full h-9"></div></div></div></div>`;
-const renderSkeletonGrid = (grid) => { if(grid) grid.innerHTML = Array.from({ length: pageSize }).map(skeletonCard).join(''); };
+// Removed logic that depends on pageSize for skeleton rendering
+const renderSkeletonGrid = (grid) => { if(grid) grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join(''); };
 function renderGrid(products, gridElement, emptyMsg) {
   if (gridElement) {
     gridElement.innerHTML = products.length ? products.map(productCard).join('') : `<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-12">${emptyMsg}</p>`;
@@ -306,14 +306,7 @@ function renderCategories(){
       customCatSelect.innerHTML = '<option value="">-- Pilih Kategori --</option>' + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
   }
 }
-function renderPagination(){
-  const box = $("#pagination"); if (!box) return;
-  if (TOTAL_PRODUCTS <= pageSize) { box.innerHTML = ''; return; }
-  const totalPages = Math.ceil(TOTAL_PRODUCTS / pageSize);
-  box.innerHTML = Array.from({ length: totalPages }, (_, i) => i + 1)
-    .map(i => `<button class="px-3 py-1 rounded-md text-sm ${i===currentPage?'bg-cyan-600 text-white':'bg-white dark:bg-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'}" data-page="${i}">${i}</button>`)
-    .join('');
-}
+// Removed renderPagination function
 
 async function renderProductDetail(id) {
     const view = $("#product-detail-view");
@@ -383,8 +376,9 @@ async function renderWishlist() {
     grid.innerHTML = '<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-12">Your wishlist is empty.</p>';
     return;
   }
-  renderSkeletonGrid(grid);
-  // Fetch products, ensuring we get the latest stock/price/discount data
+  // Changed logic to render only a maximum of 8 skeleton cards for visual consistency
+  grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join('');
+  // Fetch all wished products
   const { rows } = await fetchProductsServer({ ids: wishlist, includeSoldOut: true, limit: null }); 
   renderGrid(rows, grid, 'Your wishlist is empty.');
 }
@@ -953,7 +947,7 @@ async function handleCustomOrderSubmit(e) {
         // 1. Get the template based on category
         await fetchChatTemplates(); // ensure templates are fresh
         const template = CHAT_TEMPLATES[category] || CHAT_TEMPLATES['DEFAULT'] || 
-                         "Hi, saya berminat untuk membuat pesanan custom. Kategori: $CATEGORY. Jenis: $TYPE. Butiran: $DETAILS. $IMAGE_URL. Terima kasih.";
+                         "Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. Jenis customization: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.";
         
         // 2. Fill the template
         let message = template
@@ -995,17 +989,53 @@ async function handleCustomOrderSubmit(e) {
 /* ====== PAGE LOAD & INIT ====== */
 async function loadPage(){
   const grid = $("#all-product-grid");
-  renderSkeletonGrid(grid);
+  // Changed logic for skeleton grid since pageSize is removed. Show a fixed number.
+  grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join('');
+  
   await fetchCategories();
-  // Changed fetchProductsServer call to only show IN STOCK items for general viewing
-  const { rows, count } = await fetchProductsServer({ page: currentPage, category: CURRENT_FILTER.category, sort: CURRENT_FILTER.sort, includeSoldOut: false }); 
+  
+  // FIX: Load ALL products (limit: null) for the customer view, 
+  // relying on client-side filtering and rendering.
+  const { rows } = await fetchProductsServer({ 
+      page: 1, 
+      category: CURRENT_FILTER.category, 
+      sort: CURRENT_FILTER.sort, 
+      includeSoldOut: false, // This will filter out products that are truly out of stock and not marked as 'is_sold_out'
+      limit: null 
+  }); 
+
   ALL_PRODUCTS = rows;
-  TOTAL_PRODUCTS = count;
+  
+  // Apply filtering and sorting logic on the client-side for immediate effect
+  let filteredProducts = ALL_PRODUCTS;
+
+  if (CURRENT_FILTER.category && CURRENT_FILTER.category !== 'All') {
+      filteredProducts = filteredProducts.filter(p => p.category === CURRENT_FILTER.category);
+  }
+
+  if (CURRENT_FILTER.term.trim()) {
+      const termLower = CURRENT_FILTER.term.toLowerCase();
+      filteredProducts = filteredProducts.filter(p => p.name.toLowerCase().includes(termLower));
+  }
+  
+  if (CURRENT_FILTER.sort === 'price-asc') {
+      filteredProducts.sort((a, b) => a.price - b.price);
+  } else if (CURRENT_FILTER.sort === 'price-desc') {
+      filteredProducts.sort((a, b) => b.price - a.price);
+  } else if (CURRENT_FILTER.sort === 'newest') {
+      filteredProducts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+  // No sorting needed for 'popular' unless a specific ranking column is introduced.
+
   renderCategories();
-  renderGrid(ALL_PRODUCTS, grid, 'No products found.');
-  renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'No featured products.');
-  renderPagination();
+  renderGrid(filteredProducts, grid, 'No products found.');
+  // Removed renderPagination();
+
+  // Load Featured products (always take the first 4 after filtering/sorting logic)
+  // For featured products, we still limit to 4 to prevent clutter on the homepage
+  renderGrid(filteredProducts.slice(0, 4), $("#featured-product-grid"), 'No featured products.');
 }
+
 document.addEventListener('DOMContentLoaded', async ()=>{
   initTheme();
   await Promise.all([fetchSettings(), loadPage(), fetchChatTemplates()]); // Fetch templates on load
@@ -1101,10 +1131,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
 
   /* ====== INPUT & CHANGE HANDLERS ====== */
-  $("#search-input")?.addEventListener('input', async e => { CURRENT_FILTER.term = e.target.value; currentPage = 1; await loadPage(); });
-  $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ currentPage = 1; CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
-  $("#sort-select")?.addEventListener('change', async e => { currentPage = 1; CURRENT_FILTER.sort = e.target.value; await loadPage(); });
-  $("#pagination")?.addEventListener('click', async e => { const b = e.target.closest('button[data-page]'); if (b) { currentPage = Number(b.dataset.page)||1; await loadPage(); } });
+  // Removed pagination handler
+  $("#search-input")?.addEventListener('input', async e => { CURRENT_FILTER.term = e.target.value; await loadPage(); });
+  $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
+  $("#sort-select")?.addEventListener('change', async e => { CURRENT_FILTER.sort = e.target.value; await loadPage(); });
   $("#payment-form")?.addEventListener('submit', handleOrderSubmit);
   document.body.addEventListener('change', e => {
     if (e.target.id === 'order-status-select') {
