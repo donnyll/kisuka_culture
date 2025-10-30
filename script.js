@@ -230,12 +230,15 @@ const productBadge = p => {
     if (p.discount_percent > 0) {
         badges.push(`<span class="badge-stock badge-discount">-${p.discount_percent}%</span>`);
     }
-    if (p.stock === 0 && p.is_sold_out) {
+    
+    // Keutamaan: Jika ia SOLD OUT (admin flag), paparkan SOLD OUT sahaja, abaikan LOW STOCK
+    if (p.is_sold_out) {
         badges.push('<span class="badge-stock badge-stock-out">SOLD OUT</span>');
     } else if (p.stock === 0 && p.discount_percent === 0) {
         // Ini sepatutnya tidak muncul kerana filter, tapi sebagai fallback
         badges.push('<span class="badge-stock badge-stock-out">OUT OF STOCK</span>');
     } else if (p.stock <= 5 && p.stock > 0) {
+        // Hanya paparkan LOW STOCK jika BUKAN SOLD OUT
         badges.push(`<span class="badge-stock badge-stock-low">LOW STOCK (${p.stock})</span>`);
     }
     return badges.join('');
@@ -352,9 +355,9 @@ async function renderProductDetail(id) {
 
         <p class="text-gray-600 dark:text-gray-300 leading-relaxed">${p.description || 'No description available.'}</p>
         
-        ${p.stock === 0 && p.is_sold_out ? `<p class="text-yellow-600 font-bold text-lg mt-4">SOLD OUT (Sila gunakan borang Custom Order)</p>`:''}
-        ${p.stock === 0 && !p.is_sold_out ? `<p class="text-red-600 font-bold text-lg mt-4">OUT OF STOCK</p>`:''}
-        ${p.stock > 0 ? `<p class="text-green-600 font-bold text-lg mt-4">Available Stock: ${p.stock}</p>` : ''}
+        ${p.is_sold_out ? `<p class="text-yellow-600 font-bold text-lg mt-4">SOLD OUT (Sila gunakan borang Custom Order)</p>`:''}
+        ${!p.is_sold_out && p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">OUT OF STOCK</p>`:''}
+        ${p.stock > 0 && !p.is_sold_out ? `<p class="text-green-600 font-bold text-lg mt-4">Available Stock: ${p.stock}</p>` : ''}
         
         <div class="flex gap-3 mt-6">
           <button ${!isAvailable?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">
