@@ -5,7 +5,7 @@ const STORAGE_BUCKET = "kisuka_culture";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ====== Settings ====== */
-const WHATSAPP_NUMBER = '60178450771'; // Gantikan dengan nombor WhatsApp sebenar anda
+const WHATSAPP_NUMBER = '60178450771'; // Replace with your actual WhatsApp number
 const BANK_DETAILS = {
     name: "Bank Islam",
     account: "03148020137354",
@@ -20,7 +20,11 @@ const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
 const firstImageOf = (p) => { const arr = normalizeImages(p?.image_urls); return (arr && arr.length) ? arr[0] : "https://placehold.co/600x600?text=Product"; };
 const normalizeImages = (val) => { if (Array.isArray(val)) return val; if (typeof val === "string") { try { const arr = JSON.parse(val); return Array.isArray(arr) ? arr : []; } catch { return []; } } return []; };
-const getDiscountedPrice = (price, discount) => price * (1 - (discount || 0) / 100);
+// New helper to calculate discounted price
+const calculateDiscountedPrice = (price, discount) => {
+    if (!discount || discount <= 0) return price;
+    return price * (1 - discount / 100);
+}
 
 function showToast(msg, type='success'){
   const c = $("#toast-container"); if (!c) return;
@@ -32,13 +36,21 @@ function showToast(msg, type='success'){
 
 /* ====== State ====== */
 const KEYS = { CART:'unmeki_cart', WISHLIST:'unmeki_wishlist', THEME:'unmeki_theme' };
-let cart = JSON.parse(localStorage.getItem(KEYS.CART) || "[]");
+// FIX: ensure cart items have all necessary properties, including discount and stock
+let cart = JSON.parse(localStorage.getItem(KEYS.CART) || "[]").map(item => ({
+    id: String(item.id),
+    name: item.name,
+    price: item.price,
+    quantity: item.quantity,
+    image_url: item.image_url,
+    stock: item.stock || Infinity, // Set stock to Infinity if missing (to prevent Qty 9 limit issue)
+    discount_percent: item.discount_percent || 0 // New discount property
+}));
 let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let ALL_PRODUCTS = [];
 let ALL_CATEGORIES = [];
-let ALL_PRODUCTS_MAP = {}; // Map untuk memudahkan carian produk mengikut ID
 let CURRENT_FILTER = { category:'All', term:'', sort:'popular' };
-let CHAT_TEMPLATES = {}; // State to store WhatsApp chat templates
+// Removed TOTAL_PRODUCTS, currentPage, and pageSize for no-pagination setup
 
 /* ====== THEME ====== */
 function applyTheme(theme) {
@@ -69,7 +81,7 @@ async function handleAdminAccess(){
 function renderAuthArea(user, isAdmin){
   const area = $("#auth-area"); if (!area) return;
   if(isAdmin){
-      area.innerHTML = ''; // Sembunyikan borang log masuk jika sudah log masuk
+      area.innerHTML = ''; // Hide login form if logged in
   } else {
     area.innerHTML = `
       <div class="max-w-md mx-auto bg-white dark:bg-gray-800 p-6 rounded-lg border dark:border-gray-700">
@@ -126,34 +138,34 @@ async function fetchSettings() {
         heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Preview</span>`;
     }
 }
-// Mengubah fetchProductsServer untuk membenarkan pemuatan semua produk (limit: null)
-async function fetchProductsServer({ limit=8, term="", category="All", sort="popular", ids=null, includeSoldOut=false }={}){
+// Updated fetchProductsServer to use 'limit' instead of 'pageSize' and handle null limit correctly
+async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null, includeSoldOut=false, limit=null }={}){ 
   let query = supabase.from('products').select('*', { count: 'exact' });
   
   if (ids) { 
-    query = query.in('id', ids); 
+      query = query.in('id', ids); 
+      limit = null; // Ignore limit when fetching by IDs
   } 
   else {
     if (term.trim()) query = query.ilike('name', `%${term}%`);
     if (category && category !== 'All') query = query.eq('category', category);
-
-    // LOGIK PENAPISAN CUSTOMER VIEW (hanya tapis jika BUKAN admin dan ia benar-benar habis dijual)
+    
+    // FIX: Show product if it has stock OR is explicitly marked as sold out.
+    // HIDE only if stock is 0 AND it's NOT explicitly marked as sold out (for customer view).
     if (!includeSoldOut) {
-        // Paparkan produk jika: (stok > 0) ATAU (is_sold_out adalah TRUE) ATAU (ada diskaun aktif)
-        query = query.or('stock.gt.0,is_sold_out.eq.true,discount_percent.gt.0');
+        query = query.or('stock.gt.0,is_sold_out.eq.true'); 
     }
-
+    
     if (sort==='price-asc') query = query.order('price', { ascending:true });
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
-    else query = query.order('created_at', { ascending:false }); // Default sort
-
-    // Hadkan hasil jika 'limit' bukan null
-    if (limit !== null) {
-      query = query.limit(limit);
+    
+    // FIX: Only apply range/limit if 'limit' is a number > 0. If limit is null (for all products), skip it.
+    if (limit && typeof limit === 'number' && limit > 0) {
+        // Since we removed pageSize, we need a hardcoded limit for things like "featured" products
+        query = query.range((page-1)*limit, page*limit - 1);
     }
   }
-
   const { data, count, error } = await query;
   if (error){ showToast("Failed to load products", 'error'); return { rows:[], count:0 }; }
   return { rows: data||[], count: count||0 };
@@ -196,16 +208,22 @@ async function createOrUpdateProduct(record, files){
         }
     }
     const finalImageUrls = [...newImageUrls, ...existingImages];
-    
-    // Pastikan nilai Sold Out dan Discount adalah betul
-    const isSoldOut = record.is_sold_out === 'true' || record.is_sold_out === true;
-    const discountPercent = Number(record.discount_percent) || 0;
-
     const payload = {
-        name: record.name, description: record.description, price: Number(record.price),
-        category: record.category, stock: Number(record.stock), image_urls: finalImageUrls,
-        discount_percent: discountPercent, is_sold_out: isSoldOut
+        name: record.name, 
+        description: record.description, 
+        price: Number(record.price),
+        category: record.category, 
+        stock: Number(record.stock), 
+        image_urls: finalImageUrls,
+        // NEW FIELDS
+        discount_percent: Number(record.discount_percent) || 0,
+        is_sold_out: record.is_sold_out === 'true',
     };
+    
+    // Validation for discount
+    if (payload.discount_percent < 0 || payload.discount_percent > 100) {
+        throw new Error("Discount percentage must be between 0 and 100.");
+    }
 
     const { error } = record.id
         ? await supabase.from('products').update(payload).eq('id', record.id)
@@ -226,69 +244,50 @@ async function uploadCustomImage(file) {
 
 /* ====== RENDER FUNCTIONS ====== */
 const productBadge = p => {
-    let badges = [];
-    if (p.discount_percent > 0) {
-        badges.push(`<span class="badge-stock badge-discount">-${p.discount_percent}%</span>`);
-    }
-    
-    // Keutamaan: Jika ia SOLD OUT (admin flag), paparkan SOLD OUT sahaja, abaikan LOW STOCK
-    if (p.is_sold_out) {
-        badges.push('<span class="badge-stock badge-stock-out">SOLD OUT</span>');
-    } else if (p.stock === 0 && p.discount_percent === 0) {
-        // Ini sepatutnya tidak muncul kerana filter, tapi sebagai fallback
-        badges.push('<span class="badge-stock badge-stock-out">OUT OF STOCK</span>');
-    } else if (p.stock <= 5 && p.stock > 0) {
-        // Hanya paparkan LOW STOCK jika BUKAN SOLD OUT
-        badges.push(`<span class="badge-stock badge-stock-low">LOW STOCK (${p.stock})</span>`);
-    }
-    return badges.join('');
-};
-const productPriceHTML = p => {
-    const price = Number(p.price) || 0;
-    const discount = Number(p.discount_percent) || 0;
-    const finalPrice = getDiscountedPrice(price, discount);
-
-    if (discount > 0) {
-        return `
-            <p class="text-xs text-red-500 line-through">${money(price)}</p>
-            <p class="text-base font-extrabold text-red-600 dark:text-red-400">${money(finalPrice)}</p>
-        `;
-    }
-    return `<p class="text-base font-extrabold text-gray-900 dark:text-white">${money(price)}</p>`;
+    // Check stock or is_sold_out status
+    const isSoldOut = p.stock === 0 || p.is_sold_out;
+    if (isSoldOut) return '<span class="badge-stock badge-stock-out">Sold Out</span>';
+    if (p.discount_percent && p.discount_percent > 0) return `<span class="badge-stock badge-discount">-${p.discount_percent}%</span>`;
+    return '';
 };
 const productCard = p => {
   const isWishlisted = wishlist.includes(String(p.id));
-  const isAvailable = p.stock > 0 && !p.is_sold_out; // Hanya tersedia jika stok > 0 dan BUKAN sold out
+  const isSoldOut = p.stock === 0 || p.is_sold_out;
+  const discountedPrice = calculateDiscountedPrice(p.price, p.discount_percent);
+
+  const priceHTML = p.discount_percent > 0
+    ? `<div class="flex items-baseline gap-2"><p class="text-base font-extrabold text-red-600 dark:text-red-400">${money(discountedPrice)}</p><p class="text-xs line-through text-gray-500 dark:text-gray-400">${money(p.price)}</p></div>`
+    : `<p class="text-base font-extrabold text-gray-900 dark:text-white">${money(p.price)}</p>`;
+
   return `
   <div class="product-card bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden group relative flex flex-col">
     <div data-action="view-detail" data-id="${p.id}" class="cursor-pointer">
-      <div class="absolute top-2 right-2 z-10 flex gap-1">
-        ${productBadge(p)}
+      <div class="absolute top-2 right-2 z-10">
         <button data-action="toggle-wishlist" data-id="${p.id}" class="bg-white/80 dark:bg-gray-900/80 rounded-full p-2 shadow-md hover:bg-white transition-transform hover:scale-110">
           <i data-lucide="heart" class="w-4 h-4 transition-all ${isWishlisted ? 'text-red-500 fill-red-500' : 'text-gray-600 dark:text-gray-300'} pointer-events-none"></i>
         </button>
       </div>
       <div class="product-image-container group-hover:scale-105 transition-transform duration-300">
         <img src="${firstImageOf(p)}" alt="${p.name}">
-        ${(p.stock===0 && p.discount_percent===0 && !p.is_sold_out) ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">OUT OF STOCK</span></div>':''}
+        ${isSoldOut ? '<div class="absolute inset-0 bg-black/50 flex items-center justify-center"><span class="text-white font-bold text-sm">SOLD OUT</span></div>':''}
       </div>
     </div>
     <div class="p-4 flex flex-col flex-grow">
       <div data-action="view-detail" data-id="${p.id}" class="cursor-pointer">
-        <div class="flex items-start justify-between gap-2 mb-1">
+        <div class="flex items-center justify-between gap-2 mb-1">
           <h4 class="font-bold text-sm text-gray-800 dark:text-gray-100 truncate flex-grow">${p.name}</h4>
+          ${productBadge(p)}
         </div>
-        ${productPriceHTML(p)}
+        ${priceHTML}
       </div>
       <div class="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
-        <button ${!isAvailable?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors ${p.is_sold_out ? 'btn-sold-out' : ''}">
-          ${p.is_sold_out ? 'Sold Out (Custom Only)' : 'Add to Cart'}
-        </button>
+        <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Add to Cart</button>
       </div>
     </div>
   </div>`;
 };
 const skeletonCard = () => `<div class="skeleton-card"><div class="img"></div><div class="p-4 space-y-3"><div class="text w-3/4"></div><div class="text w-1/2"></div><div class="pt-4 mt-auto"><div class="text w-full h-9"></div></div></div></div>`;
+// Removed logic that depends on pageSize for skeleton rendering
 const renderSkeletonGrid = (grid) => { if(grid) grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join(''); };
 function renderGrid(products, gridElement, emptyMsg) {
   if (gridElement) {
@@ -307,6 +306,7 @@ function renderCategories(){
       customCatSelect.innerHTML = '<option value="">-- Pilih Kategori --</option>' + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
   }
 }
+// Removed renderPagination function
 
 async function renderProductDetail(id) {
     const view = $("#product-detail-view");
@@ -320,13 +320,15 @@ async function renderProductDetail(id) {
     }
 
     const isWishlisted = wishlist.includes(String(p.id));
+    const isSoldOut = p.stock === 0 || p.is_sold_out;
     const allImages = normalizeImages(p.image_urls);
     const mainImage = allImages.length > 0 ? allImages[0] : 'https://placehold.co/800x800?text=Image';
+    const discountedPrice = calculateDiscountedPrice(p.price, p.discount_percent);
     
-    const price = Number(p.price) || 0;
-    const discount = Number(p.discount_percent) || 0;
-    const finalPrice = getDiscountedPrice(price, discount);
-    const isAvailable = p.stock > 0 && !p.is_sold_out; // Ketersediaan untuk pembelian segera
+    const priceHTML = p.discount_percent > 0
+        ? `<div class="flex items-baseline gap-3"><p class="text-3xl font-bold text-red-600 dark:text-red-400">${money(discountedPrice)}</p><p class="text-xl line-through text-gray-500 dark:text-gray-400">${money(p.price)}</p><span class="text-base font-semibold text-red-600 dark:text-red-400">(${p.discount_percent}% OFF)</span></div>`
+        : `<p class="text-3xl font-bold text-gray-900 dark:text-white my-4">${money(p.price)}</p>`;
+
 
     view.innerHTML = `
     <section class="max-w-5xl mx-auto p-4">
@@ -344,25 +346,12 @@ async function renderProductDetail(id) {
       <div class="text-gray-800 dark:text-gray-200 mt-4">
         <p class="text-gray-500 dark:text-gray-400 text-sm">Category: ${p.category}</p>
         <h2 class="text-3xl font-extrabold text-gray-900 dark:text-white mt-1">${p.name}</h2>
-        
-        <div class="my-4 flex items-center gap-3">
-          ${discount > 0 ? `
-            <p class="text-xl font-bold text-red-600 dark:text-red-400">${money(finalPrice)}</p>
-            <p class="text-sm text-gray-500 line-through">${money(price)}</p>
-            <span class="text-sm font-semibold text-red-500">-${discount}%</span>
-          ` : `<p class="text-3xl font-bold text-gray-900 dark:text-white">${money(price)}</p>`}
-        </div>
-
-        <p class="text-gray-600 dark:text-gray-300 leading-relaxed">${p.description || 'No description available.'}</p>
-        
-        ${p.is_sold_out ? `<p class="text-yellow-600 font-bold text-lg mt-4">SOLD OUT (Sila gunakan borang Custom Order)</p>`:''}
-        ${!p.is_sold_out && p.stock === 0 ? `<p class="text-red-600 font-bold text-lg mt-4">OUT OF STOCK</p>`:''}
-        ${p.stock > 0 && !p.is_sold_out ? `<p class="text-green-600 font-bold text-lg mt-4">Available Stock: ${p.stock}</p>` : ''}
-        
+        ${priceHTML}
+        ${isSoldOut ? `<p class="text-red-600 font-bold text-lg mt-4">SOLD OUT</p>`:''}
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Available Stock: ${p.stock}</p>
+        <p class="text-gray-600 dark:text-gray-300 leading-relaxed mt-4">${p.description || 'No description available.'}</p>
         <div class="flex gap-3 mt-6">
-          <button ${!isAvailable?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors ${p.is_sold_out ? 'btn-sold-out' : ''}">
-            ${p.is_sold_out ? 'Sold Out (Custom Only)' : 'Add to Cart'}
-          </button>
+          <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">Add to Cart</button>
           <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border border-gray-300 dark:border-gray-600 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800">
             <i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600 dark:text-gray-300'}"></i>
           </button>
@@ -387,24 +376,36 @@ async function renderWishlist() {
     grid.innerHTML = '<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-12">Your wishlist is empty.</p>';
     return;
   }
-  renderSkeletonGrid(grid);
-  const { rows } = await fetchProductsServer({ ids: wishlist, limit: null });
+  // Changed logic to render only a maximum of 8 skeleton cards for visual consistency
+  grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join('');
+  // Fetch all wished products
+  const { rows } = await fetchProductsServer({ ids: wishlist, includeSoldOut: true, limit: null }); 
   renderGrid(rows, grid, 'Your wishlist is empty.');
 }
 
 /* ====== CART & PAYMENT LOGIC ====== */
-const cartTotal = () => cart.reduce((s,i)=> s + i.price*i.quantity, 0);
+const cartTotal = () => cart.reduce((s,i)=> {
+    const finalPrice = calculateDiscountedPrice(i.price, i.discount_percent);
+    return s + finalPrice * i.quantity;
+}, 0);
+
 function renderCart(){
   const box = $("#cart-items");
   if (box){
     if (cart.length===0) box.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-center"><i data-lucide="shopping-basket" class="w-16 h-16 text-gray-300 dark:text-gray-600"></i><p class="text-gray-500 dark:text-gray-400 mt-4">Your cart is empty.</p></div>`;
     else {
-      box.innerHTML = cart.map(it=>`
+      box.innerHTML = cart.map(it=>{
+        const discountedPrice = calculateDiscountedPrice(it.price, it.discount_percent);
+        const priceHTML = it.discount_percent > 0 
+            ? `<div class="flex flex-col"><p class="text-sm font-bold text-red-500">${money(discountedPrice * it.quantity)}</p><p class="text-xs line-through text-gray-500">${money(it.price * it.quantity)}</p></div>`
+            : `<p class="text-sm font-bold my-1">${money(it.price * it.quantity)}</p>`;
+
+        return `
         <div class="flex items-start gap-4 mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
           <img src="${it.image_url || 'https://placehold.co/80x80'}" alt="${it.name}" class="w-20 h-20 object-cover rounded-md border">
           <div class="flex-grow text-gray-800 dark:text-gray-200">
-            <p class="text-sm font-semibold">${it.name} ${it.discount_percent > 0 ? `<span class="text-xs text-red-500">(-${it.discount_percent}%)</span>` : ''}</p>
-            <p class="text-sm font-bold my-1">${money(it.price*it.quantity)}</p>
+            <p class="text-sm font-semibold">${it.name} ${it.discount_percent > 0 ? `(${it.discount_percent}% OFF)` : ''}</p>
+            ${priceHTML}
             <div class="flex items-center gap-3 my-1">
               <button data-action="decrement" data-id="${it.id}" class="p-1 w-7 h-7 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">-</button>
               <span class="font-bold text-sm">${it.quantity}</span>
@@ -412,7 +413,7 @@ function renderCart(){
             </div>
           </div>
           <button data-action="remove-from-cart" data-id="${it.id}" class="p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-900/50"><i data-lucide="trash-2" class="w-4 h-4 text-red-500 pointer-events-none"></i></button>
-        </div>`).join('');
+        </div>`}).join('');
     }
   }
   const cartItems = cart.reduce((s,i)=>s+i.quantity,0);
@@ -423,36 +424,70 @@ function renderCart(){
   localStorage.setItem(KEYS.CART, JSON.stringify(cart));
   iconify();
 }
-function addToCart(p){
-  const itemPrice = getDiscountedPrice(p.price, p.discount_percent);
-  const it = cart.find(x=>String(x.id)===String(p.id));
+async function addToCart(p){
+  // Fix: The original logic failed to retrieve the full product object when adding from ALL_PRODUCTS.
+  // We need to fetch the latest product data before adding to cart to fix the duplication and stock issues.
+  let fullProduct;
+  if (p.id) {
+    const { data } = await supabase.from('products').select('*').eq('id', p.id).single();
+    fullProduct = data;
+  }
+  if (!fullProduct) {
+    return showToast("Gagal memuatkan maklumat produk.", 'error');
+  }
+
+  const it = cart.find(x=>String(x.id)===String(fullProduct.id));
+  const isSoldOut = fullProduct.stock === 0 || fullProduct.is_sold_out;
+  
+  if (isSoldOut) {
+    return showToast(`${fullProduct.name} telah habis stok!`, 'error');
+  }
   
   if (it){
-    if (it.quantity < p.stock){ 
+    // FIX: Check against the latest stock and allow quantity greater than 9
+    if (it.quantity < fullProduct.stock){ 
         it.quantity++; 
-        // Update price in cart in case discount changed while app was open
-        it.price = itemPrice;
-        it.discount_percent = p.discount_percent; 
-        showToast(`${p.name} added to cart!`); 
+        showToast(`${fullProduct.name} ditambahkan ke cart!`); 
     }
-    else return showToast(`Not enough stock for ${p.name}!`,'error');
+    else return showToast(`Stok tidak mencukupi untuk ${fullProduct.name}!`, 'error');
   } else {
-    if (p.stock > 0 && !p.is_sold_out) { // Hanya boleh add jika ada stok dan BUKAN di-flag sold out
+    // FIX: Ensure all new properties (discount, stock) are saved in cart
+    if (fullProduct.stock > 0) {
       cart.push({ 
-        id:String(p.id), name:p.name, 
-        price:itemPrice, // Store discounted price in cart
-        discount_percent: p.discount_percent,
-        image_url:firstImageOf(p), 
-        stock:p.stock, 
-        quantity:1 
+          id: String(fullProduct.id), 
+          name: fullProduct.name, 
+          price: fullProduct.price, 
+          image_url: firstImageOf(fullProduct), 
+          stock: fullProduct.stock, 
+          discount_percent: fullProduct.discount_percent || 0,
+          quantity: 1 
       });
-      showToast(`${p.name} added to cart!`);
-    } else if (p.is_sold_out) {
-        return showToast(`This product is Sold Out. Please use the Custom Order tab.`, 'error');
+      showToast(`${fullProduct.name} ditambahkan ke cart!`);
+    } else return showToast(`${fullProduct.name} telah habis stok!`, 'error');
+  }
+  
+  // FIX: Remove duplicates caused by previous bug
+  const uniqueCart = [];
+  const ids = new Set();
+  for (const item of cart) {
+    if (!ids.has(item.id)) {
+      uniqueCart.push(item);
+      ids.add(item.id);
     } else {
-        return showToast(`${p.name} is out of stock!`, 'error');
+      // If duplicate found, merge quantities
+      const existing = uniqueCart.find(i => i.id === item.id);
+      if (existing) {
+          const newQty = existing.quantity + item.quantity;
+          if (newQty <= existing.stock) {
+             existing.quantity = newQty;
+          } else {
+             existing.quantity = existing.stock;
+             showToast(`Quantity adjusted to maximum stock for ${item.name}.`, 'error');
+          }
+      }
     }
   }
+  cart = uniqueCart;
   renderCart();
   const cartBtn = $("#cart-btn");
   if (cartBtn) { cartBtn.classList.add('cart-shake'); setTimeout(()=> cartBtn.classList.remove('cart-shake'), 800); }
@@ -460,11 +495,29 @@ function addToCart(p){
 const removeFromCart = id => { cart = cart.filter(i=>String(i.id)!==String(id)); renderCart(); };
 async function updateQuantity(id, d){
   const it = cart.find(i=>String(i.id)===String(id)); if (!it) return;
-  const q = it.quantity + d; if (q<=0) return removeFromCart(id);
-  // Gunakan stok dari item cart, yang sepatutnya datang dari ALL_PRODUCTS
-  const p = ALL_PRODUCTS_MAP[String(id)] || it; 
-  if (q > p.stock) return showToast(`Not enough stock for ${p.name}! (Max: ${p.stock})`,'error');
-  it.quantity=q; renderCart();
+  const q = it.quantity + d; 
+  if (q<=0) return removeFromCart(id);
+  
+  // Get latest product data (for stock check and to fix missing stock issue)
+  let fullProduct;
+  const productInAll = ALL_PRODUCTS.find(x => String(x.id) === String(id));
+  if (productInAll) {
+    fullProduct = productInAll;
+  } else {
+    const { data } = await supabase.from('products').select('stock, name').eq('id', id).single();
+    fullProduct = data;
+  }
+  
+  // FIX: Use the stock from the fetched product or from cart item (as fallback)
+  const stockLimit = fullProduct?.stock !== undefined ? fullProduct.stock : it.stock;
+
+  if (q > stockLimit) return showToast(`Stok maksimum untuk ${it.name} adalah ${stockLimit}!`, 'error');
+  
+  it.quantity=q; 
+  // FIX: Update the stock property in the cart item as well if we fetched a fresh one
+  if (fullProduct?.stock !== undefined) it.stock = fullProduct.stock;
+
+  renderCart();
 }
 function goToPayment() {
     if (cart.length === 0) {
@@ -490,7 +543,7 @@ async function handleOrderSubmit(e) {
     delete customer_details.receipt;
 
     try {
-        if (!receiptFile || receiptFile.size === 0) throw new Error("Please upload the payment receipt.");
+        if (!receiptFile || receiptFile.size === 0) throw new Error("Sila muat naik resit pembayaran.");
         
         const receiptPath = `receipts/${uid()}-${receiptFile.name}`;
         const { error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(receiptPath, receiptFile);
@@ -501,12 +554,14 @@ async function handleOrderSubmit(e) {
         const order = {
             id: uid().toUpperCase(),
             customer_details,
-            // Simpan harga selepas diskaun dalam item cart
+            // FIX: Save discounted price to items list for historical record
             items: cart.map(i => ({ 
-                id: i.id, name: i.name, 
-                price: i.price, // Ini adalah harga selepas diskaun
+                id: i.id, 
+                name: i.name, 
+                original_price: i.price, 
+                price: calculateDiscountedPrice(i.price, i.discount_percent), 
                 quantity: i.quantity,
-                discount_percent: i.discount_percent || 0
+                discount_percent: i.discount_percent || 0 
             })),
             total: cartTotal(),
             status: 'Pending',
@@ -515,6 +570,7 @@ async function handleOrderSubmit(e) {
         
         await createOrder(order);
 
+        // Update stock only for items that still exist in the database and are not marked as sold out
         const stockUpdates = cart.map(item =>
             supabase.from('products').update({ stock: item.stock - item.quantity }).eq('id', item.id)
         );
@@ -523,11 +579,11 @@ async function handleOrderSubmit(e) {
         cart = [];
         localStorage.removeItem(KEYS.CART);
         renderCart();
-        showToast('Your order has been submitted successfully!');
+        showToast('Pesanan anda telah dihantar dengan jayanya!');
         switchView('home');
 
     } catch (err) {
-        showToast(err.message || 'Failed to submit order.', 'error');
+        showToast(err.message || 'Gagal menghantar pesanan.', 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = 'Confirm & Submit';
@@ -572,14 +628,13 @@ async function switchView(view){
   if (view === 'admin') await handleAdminAccess();
   if (['home', 'all-products'].includes(view)) await loadPage();
   if (view === 'wishlist') await renderWishlist();
-  if (view === 'custom') { await fetchCategories(); updateCustomFormSoldOutProducts(); } // Logik pemuatan awal custom
+  if (view === 'custom') { await fetchCategories(); await updateCustomFormSoldOutProducts(); } // New logic for custom view
 }
 
 
 /* ====== ADMIN LOGIC ====== */
 async function renderAdminDashboard() {
     const [{ count: productCount }, { data: orders, error }] = await Promise.all([
-        // Ambil jumlah semua produk (termasuk sold out)
         supabase.from('products').select('*', { count: 'exact', head: true }),
         supabase.from('orders').select('total')
     ]);
@@ -625,22 +680,25 @@ async function renderAdminOrders() {
         return;
     }
 
-    list.innerHTML = `<div class="space-y-3">` + orders.map(o => `
-        <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 flex justify-between items-center">
+    list.innerHTML = `<div class="space-y-3">` + orders.map(o => {
+        const isCustomOrder = o.items.length === 0; // Simple heuristic for custom order
+        const totalAmount = money(o.total);
+        return `
+        <div class="order-card">
             <div>
                 <p class="font-bold text-gray-900 dark:text-white">${o.customer_details.name}</p>
                 <p class="text-xs text-gray-500">#${o.id.slice(-6)} • ${new Date(o.created_at).toLocaleString()}</p>
             </div>
             <div class="text-right">
-                <p class="font-semibold text-gray-800 dark:text-gray-200">${money(o.total)}</p>
+                <p class="font-semibold text-gray-800 dark:text-gray-200">${totalAmount}</p>
                 <p class="text-xs font-medium ${o.status === 'Shipped' ? 'text-green-500' : 'text-yellow-500'}">${o.status}</p>
             </div>
             <button data-action="view-order" data-id="${o.id}" class="btn-light !py-1 !px-3 text-xs">View</button>
         </div>
-    `).join('') + `</div>`;
+    `}).join('') + `</div>`;
 }
 async function renderAdminChatTemplates() {
-    await fetchChatTemplates(); // Pastikan CHAT_TEMPLATES dikemaskini
+    await fetchChatTemplates(); // Ensure CHAT_TEMPLATES is updated
     await fetchCategories();
     const list = $("#chat-templates-list");
     if (!list) return;
@@ -661,6 +719,17 @@ async function showOrderDetailModal(id) {
     if (error || !order) return showToast('Failed to get order details.', 'error');
 
     const content = $('#order-detail-content');
+    
+    // Detailed items list in modal
+    const itemsListHtml = order.items.map(item => {
+        const finalPrice = calculateDiscountedPrice(item.original_price || item.price, item.discount_percent);
+        const priceDisplay = item.discount_percent > 0 
+            ? `<span class="text-red-500">${money(finalPrice)}</span> <span class="line-through text-gray-400 text-xs">${money(item.original_price || item.price)}</span>`
+            : money(item.price);
+
+        return `<li>${item.quantity}x ${item.name} - ${priceDisplay}</li>`;
+    }).join('');
+
     content.innerHTML = `
         <div class="flex justify-between items-start">
             <div>
@@ -683,14 +752,7 @@ async function showOrderDetailModal(id) {
             <div>
                 <h4 class="font-semibold text-gray-800 dark:text-gray-200 mb-1">Items Ordered</h4>
                 <ul class="text-sm text-gray-600 dark:text-gray-300 list-disc pl-5 space-y-1">
-                    ${order.items.map(item => {
-                        const originalPrice = ALL_PRODUCTS_MAP[item.id]?.price || item.price; // Gunakan harga asal jika ada
-                        const finalPrice = item.price; // Harga yang dibayar (sudah diskaun)
-                        return `<li>${item.quantity}x ${item.name} 
-                            ${item.discount_percent > 0 ? `(Diskaun ${item.discount_percent}%)` : ''} 
-                            - ${money(finalPrice * item.quantity)}
-                        </li>`;
-                    }).join('')}
+                    ${itemsListHtml}
                 </ul>
                 <p class="font-bold text-right mt-2 text-gray-800 dark:text-gray-200">Total: ${money(order.total)}</p>
             </div>
@@ -725,30 +787,37 @@ async function renderAdmin(){
   
   const pList = $("#admin-product-list");
   if(pList) {
-    // Muat semua produk untuk admin (limit: null) dan susun mengikut tarikh ciptaan
-    const {rows: adminProducts} = await fetchProductsServer({ limit: null, includeSoldOut: true, sort: 'newest' });
+    // FIX: Set limit to null (within the fetchProductsServer function call) 
+    // to ensure ALL products are loaded without pagination limits for the admin view.
+    const {rows: adminProducts} = await fetchProductsServer({ page: 1, limit: null, includeSoldOut: true, sort: 'newest' });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => {
-          const price = Number(p.price) || 0;
-          const discount = Number(p.discount_percent) || 0;
-          const finalPrice = getDiscountedPrice(price, discount);
-          const priceDisplay = discount > 0 
-              ? `<span class="text-red-500">${money(finalPrice)}</span> <span class="text-xs text-gray-400 line-through ml-1">${money(price)}</span>`
-              : money(price);
-          const status = p.stock === 0 ? 'Stok: 0' : `Stok: ${p.stock}`;
-          const soldOutFlag = p.is_sold_out ? ' | <span class="text-yellow-500">SOLD OUT</span>' : '';
-          
+          const isSoldOut = p.stock === 0 || p.is_sold_out;
+          const discountedPrice = calculateDiscountedPrice(p.price, p.discount_percent);
+          const priceDisplay = p.discount_percent > 0 
+              ? `<span class="text-red-500">${money(discountedPrice)}</span> <span class="line-through text-gray-500 text-xs">${money(p.price)}</span>`
+              : money(p.price);
+
+          const statusBadge = isSoldOut 
+              ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400">SOLD OUT</span>`
+              : p.stock < 5 
+              ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400">LOW STOCK (${p.stock})</span>`
+              : `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400">IN STOCK (${p.stock})</span>`;
+
+          const discountBadge = p.discount_percent > 0
+              ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-400">-${p.discount_percent}%</span>`
+              : '';
+
           return `<div class="p-3 flex items-center justify-between gap-3">
               <div class="flex-grow">
-                  <p class="font-semibold text-gray-800 dark:text-gray-100">${p.name}</p>
-                  <p class="text-xs text-gray-500">${p.category} • ${priceDisplay} • ${status} ${soldOutFlag}</p>
+                  <p class="font-semibold text-gray-800 dark:text-gray-100">${p.name} ${discountBadge}</p>
+                  <p class="text-xs text-gray-500">${p.category} • ${priceDisplay} • ${statusBadge}</p>
               </div>
               <div class="flex-shrink-0">
                   <button data-action="edit-product" data-id="${p.id}" class="text-blue-600 hover:underline mr-3 text-sm font-medium">Edit</button>
                   <button data-action="delete-product" data-id="${p.id}" class="text-red-600 hover:underline text-sm font-medium">Delete</button>
               </div>
-          </div>`;
-      }).join('') || '<p class="p-4 text-center text-gray-500">No products.</p>'}
+          </div>`}).join('') || '<p class="p-4 text-center text-gray-500">No products.</p>'}
     </div>`;
   }
 }
@@ -781,103 +850,68 @@ async function openProductForm(id = null) {
         p = data;
     }
     
+    // Default values for new product
+    $("#product-is-sold-out-false").checked = true;
+    $("#product-discount-percent").value = 0;
+
     if (p) {
         $("#product-form-title").textContent = 'Update Product';
-        $("#product-id").value = p.id; $("#product-name").value = p.name;
-        $("#product-price").value = p.price; $("#product-stock").value = p.stock;
+        $("#product-id").value = p.id; 
+        $("#product-name").value = p.name;
+        $("#product-price").value = p.price; 
+        $("#product-stock").value = p.stock;
         $("#product-category").value = p.category || '';
         $("#product-description").value = p.description || '';
+        
+        // NEW FIELD VALUES
         $("#product-discount-percent").value = p.discount_percent || 0;
-
-        // Set radio button for is_sold_out
-        $(`#product-is-sold-out-${p.is_sold_out}`).checked = true;
+        $(`#product-is-sold-out-${p.is_sold_out ? 'true' : 'false'}`).checked = true;
 
         const existingImages = normalizeImages(p.image_urls);
         $("#product-existing-images").value = JSON.stringify(existingImages);
         renderImagePreviews(existingImages, $("#product-images-preview"));
     } else {
         $("#product-form-title").textContent = 'Add New Product';
-        $("#product-is-sold-out-false").checked = true; // Default kepada 'In Stock / Normal'
     }
     togglePanel('product-form-modal', true);
 }
 
 /* ====== CUSTOM ORDER LOGIC ====== */
-async function updateCustomFormSoldOutProducts(selectedProductId = null) {
+async function updateCustomFormSoldOutProducts() {
     const category = $("#custom-category-select").value;
     const soldOutSelect = $("#sold-out-select");
     const soldOutSection = $("#sold-out-product-section");
     const customTypeRadios = $$('input[name="custom_type"]');
-    const soldOutImageContainer = $("#sold-out-product-image");
     
     const selectedType = customTypeRadios.find(r => r.checked)?.value;
     
-    // Fungsi untuk reset imej preview
-    const resetImagePreview = () => {
-        soldOutImageContainer.innerHTML = '<span class="text-sm text-gray-500">Tiada Produk Dipilih</span>';
-        soldOutImageContainer.classList.remove('p-0');
-    };
-
     if (!category || selectedType !== 'sold_out') {
         soldOutSection.classList.add('hidden');
-        resetImagePreview();
         return;
     }
 
     soldOutSelect.innerHTML = '<option value="">Loading...</option>';
 
-    // Ambil produk yang diset 'is_sold_out: true'
+    // Query for products that are sold out (stock = 0 OR is_sold_out = true)
     const { data: soldOutProducts, error } = await supabase.from('products')
-        .select('id, name, image_urls')
+        .select('id, name')
         .eq('category', category)
-        .eq('is_sold_out', true); 
-    
+        .or('stock.eq.0,is_sold_out.eq.true'); // Combine stock check and sold_out flag
+
     if (error) {
-        showToast("Gagal memuatkan produk sold out.", 'error');
-        resetImagePreview();
+        soldOutSelect.innerHTML = '<option value="">-- Failed to load products --</option>';
+        console.error("Error fetching sold out products:", error);
         return;
     }
-
+    
     if (soldOutProducts && soldOutProducts.length > 0) {
         soldOutSelect.innerHTML = '<option value="">-- Pilih Produk --</option>' + soldOutProducts.map(p => 
-            `<option value="${p.id}" data-image="${firstImageOf(p)}" ${selectedProductId === p.id ? 'selected' : ''}>${p.name}</option>`
+            `<option value="${p.id}">${p.name}</option>`
         ).join('');
-        
         soldOutSection.classList.remove('hidden');
-
-        // Panggil logik untuk memaparkan imej produk yang telah dipilih (jika ada)
-        if (selectedProductId) {
-             const selectedOption = soldOutSelect.querySelector(`option[value="${selectedProductId}"]`);
-             if (selectedOption) {
-                const imgUrl = selectedOption.dataset.image;
-                if (imgUrl) {
-                    soldOutImageContainer.innerHTML = `<img src="${imgUrl}" alt="Sold Out Product Image" class="w-full h-full object-cover">`;
-                    soldOutImageContainer.classList.add('p-0');
-                } else {
-                    resetImagePreview();
-                }
-             }
-        } else {
-            resetImagePreview();
-        }
-
     } else {
         soldOutSelect.innerHTML = '<option value="">-- Tiada Produk Sold Out Dalam Kategori Ini --</option>';
-        soldOutSection.classList.remove('hidden'); 
-        resetImagePreview();
-    }
-}
-async function handleSoldOutProductSelection(e) {
-    const selectedOption = e.target.options[e.target.selectedIndex];
-    const imgUrl = selectedOption.dataset.image;
-    const soldOutImageContainer = $("#sold-out-product-image");
-    
-    if (imgUrl) {
-        soldOutImageContainer.innerHTML = `<img src="${imgUrl}" alt="Sold Out Product Image" class="w-full h-full object-cover">`;
-        soldOutImageContainer.classList.add('p-0');
-    } else {
-        soldOutImageContainer.innerHTML = '<span class="text-sm text-gray-500">Tiada Produk Dipilih</span>';
-        soldOutImageContainer.classList.remove('p-0');
+        soldOutSection.classList.remove('hidden'); // Show empty list
     }
 }
 async function handleCustomOrderSubmit(e) {
@@ -887,10 +921,9 @@ async function handleCustomOrderSubmit(e) {
     const customType = $('input[name="custom_type"]:checked')?.value;
     const details = $("#custom-details").value;
     const imageFile = $("#custom-image-file").files[0];
-    const soldOutSelect = $("#sold-out-select");
-    const soldOutProductId = soldOutSelect.value;
+    const soldOutProductId = $("#sold-out-select").value;
     
-    if (!category || !customType || !details || (customType === 'sold_out' && !soldOutProductId)) {
+    if (!category || !customType || !details) {
         return showToast('Sila lengkapkan semua butiran yang diperlukan.', 'error');
     }
     
@@ -912,9 +945,9 @@ async function handleCustomOrderSubmit(e) {
         }
         
         // 1. Get the template based on category
-        await fetchChatTemplates(); // pastikan templates adalah fresh
+        await fetchChatTemplates(); // ensure templates are fresh
         const template = CHAT_TEMPLATES[category] || CHAT_TEMPLATES['DEFAULT'] || 
-                         "Hi, saya berminat untuk membuat pesanan custom. Kategori: $CATEGORY. Jenis: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.";
+                         "Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. Jenis customization: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.";
         
         // 2. Fill the template
         let message = template
@@ -938,12 +971,10 @@ async function handleCustomOrderSubmit(e) {
         const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message.trim())}`;
         window.open(url, '_blank');
         
-        // Reset borang selepas berjaya
+        // Reset form after successful submission
         e.target.reset();
         $("#sold-out-product-section").classList.add('hidden');
         $("#upload-image-section").classList.add('hidden');
-        $("#sold-out-product-image").innerHTML = '<span class="text-sm text-gray-500">Tiada Produk Dipilih</span>';
-        $("#sold-out-product-image").classList.remove('p-0');
         showToast('Permintaan custom dihantar ke WhatsApp!', 'success');
 
     } catch (err) {
@@ -958,24 +989,53 @@ async function handleCustomOrderSubmit(e) {
 /* ====== PAGE LOAD & INIT ====== */
 async function loadPage(){
   const grid = $("#all-product-grid");
-  renderSkeletonGrid(grid);
+  // Changed logic for skeleton grid since pageSize is removed. Show a fixed number.
+  grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join('');
+  
   await fetchCategories();
   
-  // Memuatkan SEMUA produk untuk paparan pelanggan (limit: null)
+  // FIX: Load ALL products (limit: null) for the customer view, 
+  // relying on client-side filtering and rendering.
   const { rows } = await fetchProductsServer({ 
-    limit: null, // Tiada had page size
-    category: CURRENT_FILTER.category, 
-    sort: CURRENT_FILTER.sort,
-    includeSoldOut: false // Hanya paparkan yang boleh dibeli atau sold out berflag
-  });
+      page: 1, 
+      category: CURRENT_FILTER.category, 
+      sort: CURRENT_FILTER.sort, 
+      includeSoldOut: false, // This will filter out products that are truly out of stock and not marked as 'is_sold_out'
+      limit: null 
+  }); 
 
   ALL_PRODUCTS = rows;
-  ALL_PRODUCTS_MAP = ALL_PRODUCTS.reduce((acc, p) => { acc[p.id] = p; return acc; }, {});
+  
+  // Apply filtering and sorting logic on the client-side for immediate effect
+  let filteredProducts = ALL_PRODUCTS;
+
+  if (CURRENT_FILTER.category && CURRENT_FILTER.category !== 'All') {
+      filteredProducts = filteredProducts.filter(p => p.category === CURRENT_FILTER.category);
+  }
+
+  if (CURRENT_FILTER.term.trim()) {
+      const termLower = CURRENT_FILTER.term.toLowerCase();
+      filteredProducts = filteredProducts.filter(p => p.name.toLowerCase().includes(termLower));
+  }
+  
+  if (CURRENT_FILTER.sort === 'price-asc') {
+      filteredProducts.sort((a, b) => a.price - b.price);
+  } else if (CURRENT_FILTER.sort === 'price-desc') {
+      filteredProducts.sort((a, b) => b.price - a.price);
+  } else if (CURRENT_FILTER.sort === 'newest') {
+      filteredProducts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+  // No sorting needed for 'popular' unless a specific ranking column is introduced.
 
   renderCategories();
-  renderGrid(ALL_PRODUCTS, grid, 'No products found.');
-  renderGrid(ALL_PRODUCTS.slice(0, 4), $("#featured-product-grid"), 'No featured products.');
+  renderGrid(filteredProducts, grid, 'No products found.');
+  // Removed renderPagination();
+
+  // Load Featured products (always take the first 4 after filtering/sorting logic)
+  // For featured products, we still limit to 4 to prevent clutter on the homepage
+  renderGrid(filteredProducts.slice(0, 4), $("#featured-product-grid"), 'No featured products.');
 }
+
 document.addEventListener('DOMContentLoaded', async ()=>{
   initTheme();
   await Promise.all([fetchSettings(), loadPage(), fetchChatTemplates()]); // Fetch templates on load
@@ -998,20 +1058,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (actionBtn?.dataset.action === 'back-to-cart') { 
         togglePanel('cart-panel', true);
     }
-    if (actionBtn?.dataset.action === 'close-custom-view') {
-        switchView('home');
-    }
 
     if (actionBtn){
       const { action, id, category } = actionBtn.dataset;
       let p;
       if (id) {
-          // Guna ALL_PRODUCTS_MAP jika ada, jika tidak, fetch dari server
-          p = ALL_PRODUCTS_MAP[String(id)]; 
-          if (!p) {
-              const { data } = await supabase.from('products').select('*').eq('id', id).single();
-              p = data;
-          }
+          // Changed to fetch product from server to ensure latest data (e.g. discount)
+          const { data } = await supabase.from('products').select('*').eq('id', id).single();
+          p = data;
       }
 
       if (action==='add-to-cart' && p) addToCart(p);
@@ -1028,12 +1082,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       }
       if (action==='edit-product') openProductForm(id);
       if (action==='delete-product'){
-        if (!confirm("Delete this product?")) return;
+        // Changed alert to confirm
+        if (!window.confirm("Delete this product?")) return;
         try { await deleteProduct(id); showToast('Product deleted'); await renderAdmin(); await loadPage(); }
         catch(err) { showToast(err.message||'Failed to delete','error'); }
       }
       if (action==='delete-category') {
-          if (!confirm("Delete this category?")) return;
+          // Changed alert to confirm
+          if (!window.confirm("Delete this category?")) return;
           try {
               const { error } = await supabase.from('categories').delete().eq('id', id);
               if (error) throw error;
@@ -1060,9 +1116,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (e.target.closest('#checkout-btn')) goToPayment();
     if (e.target.closest('#whatsapp-btn')) {
         if (cart.length === 0) return showToast('Your cart is empty!', 'error');
-        const itemsList = cart.map(item => `• ${item.quantity}x ${item.name} (${money(item.price * item.quantity)})`).join('\n');
-        const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-        const message = `Hi, I'm interested in ordering the following items:\n\n${itemsList}\n\n*Total: ${money(total)}*\n\nCan you confirm stock availability? Thank you.`;
+        const itemsList = cart.map(item => {
+            const finalPrice = calculateDiscountedPrice(item.price, item.discount_percent);
+            const discountText = item.discount_percent > 0 ? ` (Discount: ${item.discount_percent}%)` : '';
+            return `• ${item.quantity}x ${item.name} (${money(finalPrice * item.quantity)}) ${discountText}`;
+        }).join('\n');
+
+        const total = cartTotal();
+        const message = `Hi, saya berminat untuk membuat pesanan item berikut:\n\n${itemsList}\n\n*Total: ${money(total)}*\n\nBoleh sahkan stok tersedia? Terima kasih.`;
         const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
         closeAllPanels();
@@ -1070,6 +1131,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
 
   /* ====== INPUT & CHANGE HANDLERS ====== */
+  // Removed pagination handler
   $("#search-input")?.addEventListener('input', async e => { CURRENT_FILTER.term = e.target.value; await loadPage(); });
   $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
   $("#sort-select")?.addEventListener('change', async e => { CURRENT_FILTER.sort = e.target.value; await loadPage(); });
@@ -1078,19 +1140,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (e.target.id === 'order-status-select') {
         updateOrderStatus(e.target.dataset.id, e.target.value);
     }
-    // Logik paparan borang custom order dinamik
+    // Custom Order form dynamic display logic
     if (e.target.id === 'custom-category-select') {
         updateCustomFormSoldOutProducts();
-    }
-    if (e.target.id === 'sold-out-select') {
-        handleSoldOutProductSelection(e);
     }
     if (e.target.name === 'custom_type') {
         const type = e.target.value;
         const uploadSection = $("#upload-image-section");
         const soldOutSection = $("#sold-out-product-section");
         
-        // Reset inputs dan visibility
+        // Reset inputs and visibility
         uploadSection.classList.add('hidden');
         soldOutSection.classList.add('hidden');
         $("#custom-image-file").required = false;
@@ -1099,10 +1158,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         if (type === 'new_design') {
             uploadSection.classList.remove('hidden');
             $("#custom-image-file").required = true;
-            $("#sold-out-product-image").innerHTML = '<span class="text-sm text-gray-500">Tiada Produk Dipilih</span>';
-            $("#sold-out-product-image").classList.remove('p-0');
         } else if (type === 'sold_out') {
-            updateCustomFormSoldOutProducts(); // Rerun untuk memaparkan produk sold-out yang betul
+            updateCustomFormSoldOutProducts(); // Rerun to show the correct sold-out products
             $("#sold-out-select").required = true;
         }
     }
@@ -1187,11 +1244,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $("#product-form")?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const record = {
-          id: $("#product-id").value, name: $("#product-name").value, price: $("#product-price").value,
-          stock: $("#product-stock").value, category: $("#product-category").value, description: $("#product-description").value,
+          id: $("#product-id").value, 
+          name: $("#product-name").value, 
+          price: $("#product-price").value,
+          stock: $("#product-stock").value, 
+          category: $("#product-category").value, 
+          description: $("#product-description").value,
           image_urls: $("#product-existing-images").value,
+          // NEW FIELDS
           discount_percent: $("#product-discount-percent").value,
-          is_sold_out: $('input[name="is_sold_out"]:checked').value
+          is_sold_out: $('input[name="is_sold_out"]:checked').value,
       };
       const files = $("#product-images-input").files;
       try {
