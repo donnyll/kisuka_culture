@@ -86,16 +86,10 @@ html.dark .badge-stock-low { background-color: #450a0a; color: #fca5a5; }
 .badge-stock-out { background-color: #f3f4f6; color: #4b5563; }
 html.dark .badge-stock-out { background-color: #374151; color: #d1d5db; }
 /* NEW: Discount Badge */
-.badge-discount { 
-    background-color: #fef2f2; 
-    color: #b91c1c;
-    border: 1px solid #fca5a5;
-    font-weight: 700;
-}
-html.dark .badge-discount {
-    background-color: #450a0a;
-    color: #fca5a5;
-    border: 1px solid #7f1d1d;
+.badge-discount {
+    background-color: #ef4444; /* Red-500 */
+    color: #ffffff;
+    margin-right: 4px; /* Space between discount and wishlist/other badges */
 }
 
 
