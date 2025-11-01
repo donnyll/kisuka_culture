@@ -865,7 +865,8 @@ async function openProductForm(id = null) {
         
         // NEW FIELD VALUES
         $("#product-discount-percent").value = p.discount_percent || 0;
-        $(`#product-is-sold-out-${p.is_sold_out ? 'true' : 'false'}`).checked = true;
+        // FIX: Ensure radio buttons are correctly set using the actual boolean value from DB
+        $(`#product-is-sold-out-${p.is_sold_out === true ? 'true' : 'false'}`).checked = true;
 
         const existingImages = normalizeImages(p.image_urls);
         $("#product-existing-images").value = JSON.stringify(existingImages);
@@ -1080,7 +1081,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         actionBtn.querySelector('i').classList.toggle('fill-red-500', wishlist.includes(id));
         if ($("#wishlist-view")?.classList.contains('active')) await renderWishlist();
       }
-      if (action==='edit-product') openProductForm(id);
+      // FIX: Ensure this action calls openProductForm with the correct ID
+      if (action==='edit-product') openProductForm(id); 
       if (action==='delete-product'){
         // Changed alert to confirm
         if (!window.confirm("Delete this product?")) return;
@@ -1238,11 +1240,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         let images = JSON.parse(existingImagesInput.value);
         images = images.filter(url => url !== urlToRemove);
         existingImagesInput.value = JSON.stringify(images);
-        btn.parentElement.remove();
+        renderImagePreviews(images, $("#product-images-preview")); // Re-render previews
     }
   });
   $("#product-form")?.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const saveBtn = e.target.querySelector('.btn-primary');
+      saveBtn.textContent = 'Saving...';
+      saveBtn.disabled = true;
+
       const record = {
           id: $("#product-id").value, 
           name: $("#product-name").value, 
@@ -1258,9 +1264,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const files = $("#product-images-input").files;
       try {
           await createOrUpdateProduct(record, files);
-          showToast(`Product ${record.id ? 'updated' : 'added'}`);
-          closeAllPanels(); await renderAdmin(); await loadPage();
-      } catch (err) { showToast(err.message, 'error'); }
+          showToast(`Product ${record.id ? 'updated' : 'added'}!`);
+          closeAllPanels(); 
+          await renderAdmin(); 
+          await loadPage(); // Reload products for customer view as well
+      } catch (err) { 
+          showToast(err.message, 'error'); 
+      } finally {
+          saveBtn.textContent = 'Save';
+          saveBtn.disabled = false;
+      }
   });
    $('#hero-file').addEventListener('change', (e) => {
         const file = e.target.files[0];
