@@ -381,7 +381,7 @@ async function renderWishlist() {
     grid.innerHTML = '<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-12">Your wishlist is empty.</p>';
     return;
   }
-  grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join('');
+  renderSkeletonGrid(grid);
   const { rows } = await fetchProductsServer({ ids: wishlist, includeSoldOut: true, limit: null }); 
   renderGrid(rows, grid, 'Your wishlist is empty.');
 }
@@ -983,22 +983,32 @@ async function handleCustomOrderSubmit(e) {
         const template = CHAT_TEMPLATES[category] || CHAT_TEMPLATES['DEFAULT'] || 
                          "Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. Jenis customization: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.";
         
+        // --- FIX LOGIC HERE ---
         let message = template
             .replace(/\$CATEGORY/g, category)
             .replace(/\$TYPE/g, customType === 'new_design' ? 'Reka Bentuk Baharu' : 'Produk Sold Out')
             .replace(/\$DETAILS/g, details);
             
+        // Conditional replacements: Ensure variables are replaced with appropriate text or empty string.
         if (customType === 'sold_out' && productName) {
-            message = message.replace(/\$PRODUCT_NAME/g, `Produk Asas: ${productName}`);
+            // Replace $PRODUCT_NAME with the product name and a label
+            message = message.replace(/\$PRODUCT_NAME/g, `\n\nProduk Asas: ${productName}`);
         } else {
+            // If not sold_out type, remove the variable
             message = message.replace(/\$PRODUCT_NAME/g, '');
         }
         
         if (imageUrl) {
-            message = message.replace(/\$IMAGE_URL/g, `Pautan Gambar Rujukan: ${imageUrl}`);
+            // Replace $IMAGE_URL with the image link and a label
+            message = message.replace(/\$IMAGE_URL/g, `\n\nPautan Gambar Rujukan: ${imageUrl}`);
         } else {
-            message = message.replace(/\$IMAGE_URL/g, 'Tiada gambar rujukan dimuat naik.');
+            // If no image uploaded, remove the variable
+            message = message.replace(/\$IMAGE_URL/g, '');
         }
+        
+        // FINAL CLEANUP: Replace any remaining, unused template variables with empty strings.
+        message = message.replace(/\$PRODUCT_NAME/g, '').replace(/\$IMAGE_URL/g, '');
+
 
         const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message.trim())}`;
         window.open(url, '_blank');
