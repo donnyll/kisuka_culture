@@ -73,7 +73,6 @@
               </select>
           </div>
           <div id="category-filters" class="flex flex-wrap gap-2 my-5"></div>
-          <!-- Grid untuk semua produk, tanpa pagination -->
           <div id="all-product-grid" class="grid grid-cols-2 gap-4"></div>
         </section>
       </div>
@@ -81,7 +80,10 @@
       <!-- Custom Order View (NEW SECTION) -->
       <div id="custom-view" class="view">
         <section class="max-w-xl mx-auto p-4">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Custom Order</h2>
+          <div class="flex justify-between items-center mb-6">
+              <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Custom Order</h2>
+              <button data-action="close-custom-view" class="btn-icon text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" aria-label="Close Custom Order"><i data-lucide="x" class="w-5 h-5"></i></button>
+          </div>
           <div class="bg-white dark:bg-gray-800 p-6 rounded-lg border dark:border-gray-700 shadow-xl">
             <p class="text-gray-600 dark:text-gray-300 mb-6 text-sm">Pilih kategori produk untuk memulakan pesanan *custom* anda, kemudian teruskan perbincangan di WhatsApp.</p>
             <form id="custom-order-form" class="space-y-5">
@@ -122,12 +124,16 @@
               <!-- Step 3b: Select Sold Out Product (Visible when 'sold_out' is selected) -->
               <div id="sold-out-product-section" class="hidden space-y-3 pt-3 border-t dark:border-gray-700">
                 <label class="form-label"><span>Pilih Produk Sold Out</span>
-                  <select id="sold-out-select" class="form-input">
+                  <select id="sold-out-select" class="form-input" required>
                     <option value="">-- Tiada Produk Sold Out Dalam Kategori Ini --</option>
                     <!-- Sold out products will be populated by script.js -->
                   </select>
                   <p id="sold-out-info" class="text-xs text-gray-500 mt-1">Produk ini akan digunakan sebagai asas customization.</p>
                 </label>
+                <!-- Image Preview for Sold Out Product -->
+                <div id="sold-out-product-image" class="w-full h-40 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center overflow-hidden p-4">
+                    <span class="text-sm text-gray-500">Tiada Produk Dipilih</span>
+                </div>
               </div>
               
               <!-- Step 4: Details & Submission -->
@@ -210,7 +216,6 @@
                   <button data-tab="orders" class="admin-tab">Orders</button>
                   <button data-tab="categories" class="admin-tab">Categories</button>
                   <button data-tab="settings" class="admin-tab">Settings</button>
-                  <!-- NEW ADMIN TAB -->
                   <button data-tab="chat-templates" class="admin-tab">Chat Templates</button>
                 </nav>
               </div>
@@ -239,7 +244,7 @@
               <div id="admin-categories-content" class="admin-tab-content hidden"><div class="flex items-center gap-2 mb-4"><input id="new-category-name" class="form-input" placeholder="New category name" /><button id="add-category-btn" class="btn-primary">Add</button></div><div id="category-list" class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700"></div></div>
               <div id="admin-settings-content" class="admin-tab-content hidden"><div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4"><h3 class="font-bold text-gray-900 dark:text-white mb-3">Hero Media</h3><div class="flex flex-col sm:flex-row items-center gap-4"><div id="hero-preview-container" class="w-48 h-24 bg-gray-100 dark:bg-gray-700 rounded border dark:border-gray-600 flex items-center justify-center"></div><div class="space-y-2"><input id="hero-file" type="file" accept="video/*,image/*" class="form-file"><button id="save-hero-btn" class="btn-primary">Save</button></div></div></div></div>
               
-              <!-- NEW ADMIN CHAT TEMPLATES SECTION -->
+              <!-- ADMIN CHAT TEMPLATES SECTION -->
               <div id="admin-chat-templates-content" class="admin-tab-content hidden">
                   <h3 class="text-xl font-bold mb-4 text-gray-900 dark:text-white">Custom WhatsApp Chat Templates</h3>
                   <div class="text-sm text-gray-600 dark:text-gray-400 mb-4 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700">
@@ -249,7 +254,7 @@
                       <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$TYPE</code> untuk jenis customization (Reka Bentuk Baharu / Sold Out).</li>
                       <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$DETAILS</code> untuk butiran yang dimasukkan oleh pelanggan.</li>
                       <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$PRODUCT_NAME</code> jika jenis Sold Out dipilih.</li>
-                      <li>Gunakan <code class="bg-gray-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$IMAGE_URL</code> jika gambar di-upload.</li>
+                      <li>Gunakan <code class="bg-200 dark:bg-gray-700 px-1 rounded text-cyan-600 dark:text-cyan-400">$IMAGE_URL</code> jika gambar di-upload.</li>
                     </ul>
                   </div>
                   <div id="chat-templates-list" class="space-y-4">
@@ -297,7 +302,44 @@
     </div>
     
     <!-- Product Form Modal -->
-    <div id="product-form-modal" class="modal"><div class="modal-card max-w-lg"><form id="product-form"><h2 id="product-form-title" class="text-2xl font-bold mb-6 text-gray-900 dark:text-white">Add New Product</h2><input type="hidden" id="product-id" /><div class="grid grid-cols-1 sm:grid-cols-2 gap-4"><label class="form-label"><span>Product Name</span><input id="product-name" class="form-input" required /></label><label class="form-label"><span>Price (RM)</span><input id="product-price" type="number" step="0.01" class="form-input" required /></label><label class="form-label"><span>Stock</span><input id="product-stock" type="number" class="form-input" required /></label><label class="form-label"><span>Discount (%)</span><input id="product-discount-percent" type="number" step="1" min="0" max="100" class="form-input" placeholder="0" /></label><label class="form-label col-span-full"><span>Sold Out Status</span><div class="flex gap-4 mt-1"><label class="flex items-center"><input type="radio" name="is_sold_out" id="product-is-sold-out-false" value="false" class="form-radio text-cyan-600" /> <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">In Stock / Normal</span></label><label class="flex items-center"><input type="radio" name="is_sold_out" id="product-is-sold-out-true" value="true" class="form-radio text-cyan-600" /> <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Sold Out (Keep Visible)</span></label></div></label></div><div class="mt-4"><label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Images</label><input id="product-images-input" type="file" accept="image/*" multiple class="form-file" /><p class="text-xs text-gray-500 mt-1">You can select multiple images.</p><div id="product-images-preview" class="flex flex-wrap gap-2 mt-2"></div><input type="hidden" id="product-existing-images" value="[]"></div><div class="mt-4"><label class="form-label"><span>Description</span><textarea id="product-description" rows="4" class="form-input" required></textarea></label></div><div class="flex justify-end gap-2 mt-5"><button type="button" id="cancel-product-form-btn" class="btn-light">Cancel</button><button class="btn-primary">Save</button></div></form></div></div>
+    <div id="product-form-modal" class="modal">
+      <div class="modal-card max-w-lg">
+        <form id="product-form">
+          <h2 id="product-form-title" class="text-2xl font-bold mb-6 text-gray-900 dark:text-white">Add New Product</h2>
+          <input type="hidden" id="product-id" />
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label class="form-label"><span>Product Name</span><input id="product-name" class="form-input" required /></label>
+              <label class="form-label"><span>Price (RM)</span><input id="product-price" type="number" step="0.01" class="form-input" required /></label>
+              <label class="form-label"><span>Stock</span><input id="product-stock" type="number" class="form-input" required /></label>
+              <label class="form-label"><span>Discount (%)</span><input id="product-discount-percent" type="number" step="1" min="0" max="100" class="form-input" placeholder="0" /></label>
+              
+              <!-- ADDED CATEGORY FIELD BACK -->
+              <label class="form-label col-span-full"><span>Category</span><select id="product-category" class="form-input" required></select></label>
+              
+              <label class="form-label col-span-full"><span>Sold Out Status</span>
+                  <div class="flex gap-4 mt-1">
+                      <label class="flex items-center"><input type="radio" name="is_sold_out" id="product-is-sold-out-false" value="false" class="form-radio text-cyan-600" /> <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">In Stock / Normal</span></label>
+                      <label class="flex items-center"><input type="radio" name="is_sold_out" id="product-is-sold-out-true" value="true" class="form-radio text-cyan-600" /> <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Sold Out (Keep Visible)</span></label>
+                  </div>
+              </label>
+          </div>
+          <div class="mt-4">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Images</label>
+              <input id="product-images-input" type="file" accept="image/*" multiple class="form-file" />
+              <p class="text-xs text-gray-500 mt-1">You can select multiple images.</p>
+              <div id="product-images-preview" class="flex flex-wrap gap-2 mt-2"></div>
+              <input type="hidden" id="product-existing-images" value="[]">
+          </div>
+          <div class="mt-4">
+              <label class="form-label"><span>Description</span><textarea id="product-description" rows="4" class="form-input" required></textarea></label>
+          </div>
+          <div class="flex justify-end gap-2 mt-5">
+              <button type="button" id="cancel-product-form-btn" class="btn-light">Cancel</button>
+              <button class="btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <!-- Order Detail Modal (For Admin) -->
     <div id="order-detail-modal" class="modal"><div id="order-detail-content" class="modal-card max-w-lg"></div></div>

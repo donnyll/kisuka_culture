@@ -83,13 +83,23 @@ html.dark .badge-dot {
 }
 .badge-stock-low { background-color: #fef2f2; color: #b91c1c; }
 html.dark .badge-stock-low { background-color: #450a0a; color: #fca5a5; }
-.badge-stock-out { background-color: #f3f4f6; color: #4b5563; }
-html.dark .badge-stock-out { background-color: #374151; color: #d1d5db; }
+
+/* Sold Out badge on top of image (using full opacity for better look) */
+.badge-stock-out { 
+    background-color: #374151; /* Dark Gray */
+    color: #d1d5db; /* Light Text */
+    border-radius: 999px;
+    padding: 4px 10px; /* Bigger padding */
+    font-size: 11px;
+    font-weight: 700;
+}
+html.dark .badge-stock-out { background-color: #1f2937; color: #f3f4f6; }
+
 /* NEW: Discount Badge */
 .badge-discount {
     background-color: #ef4444; /* Red-500 */
     color: #ffffff;
-    margin-right: 4px; /* Space between discount and wishlist/other badges */
+    margin-right: 4px; 
 }
 
 
@@ -193,6 +203,19 @@ html.dark .form-input:focus { box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.3); }
 }
 .form-file::file-selector-button:hover { background-color: #cffafe; }
 html.dark .form-file::file-selector-button { background-color: rgba(22, 78, 99, 0.5); color: #67e8f9; }
+
+/* Sold Out Button (Custom Only) style at the bottom of the card */
+.btn-sold-out {
+    background-color: #374151 !important; /* Dark Gray */
+    color: #d1d5db !important;
+    border: 1px solid #4b5563;
+    pointer-events: auto !important; /* Allow click if logic permits custom order */
+}
+.btn-sold-out:hover {
+    background-color: #1f2937 !important;
+    border-color: #374151;
+}
+
 
 /* Product Image Sizing */
 .product-image-container {

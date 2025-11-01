@@ -20,7 +20,6 @@ const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 const iconify = ()=> { try{ lucide.createIcons(); }catch(e){} };
 const firstImageOf = (p) => { const arr = normalizeImages(p?.image_urls); return (arr && arr.length) ? arr[0] : "https://placehold.co/600x600?text=Product"; };
 const normalizeImages = (val) => { if (Array.isArray(val)) return val; if (typeof val === "string") { try { const arr = JSON.parse(val); return Array.isArray(arr) ? arr : []; } catch { return []; } } return []; };
-// New helper to calculate discounted price
 const calculateDiscountedPrice = (price, discount) => {
     if (!discount || discount <= 0) return price;
     return price * (1 - discount / 100);
@@ -36,21 +35,21 @@ function showToast(msg, type='success'){
 
 /* ====== State ====== */
 const KEYS = { CART:'unmeki_cart', WISHLIST:'unmeki_wishlist', THEME:'unmeki_theme' };
-// FIX: ensure cart items have all necessary properties, including discount and stock
 let cart = JSON.parse(localStorage.getItem(KEYS.CART) || "[]").map(item => ({
     id: String(item.id),
     name: item.name,
     price: item.price,
     quantity: item.quantity,
     image_url: item.image_url,
-    stock: item.stock || Infinity, // Set stock to Infinity if missing (to prevent Qty 9 limit issue)
-    discount_percent: item.discount_percent || 0 // New discount property
+    stock: item.stock || Infinity, 
+    discount_percent: item.discount_percent || 0 
 }));
 let wishlist = JSON.parse(localStorage.getItem(KEYS.WISHLIST) || "[]");
 let ALL_PRODUCTS = [];
 let ALL_CATEGORIES = [];
+let ALL_PRODUCTS_MAP = {};
 let CURRENT_FILTER = { category:'All', term:'', sort:'popular' };
-// Removed TOTAL_PRODUCTS, currentPage, and pageSize for no-pagination setup
+let CHAT_TEMPLATES = {}; 
 
 /* ====== THEME ====== */
 function applyTheme(theme) {
@@ -81,7 +80,7 @@ async function handleAdminAccess(){
 function renderAuthArea(user, isAdmin){
   const area = $("#auth-area"); if (!area) return;
   if(isAdmin){
-      area.innerHTML = ''; // Hide login form if logged in
+      area.innerHTML = ''; 
   } else {
     area.innerHTML = `
       <div class="max-w-md mx-auto bg-white dark:bg-gray-800 p-6 rounded-lg border dark:border-gray-700">
@@ -133,26 +132,24 @@ async function fetchSettings() {
         heroImg.classList.remove('hidden');
         heroPreviewContainer.innerHTML = `<img src="${settings.hero_image_url}${cacheBuster}" class="w-full h-full object-cover">`;
     } else {
-        heroImg.classList.remove('hidden');
         heroImg.src = 'https://placehold.co/1920x1080/000000/FFFFFF?text=kisuka_culture';
+        heroImg.classList.remove('hidden');
         heroPreviewContainer.innerHTML = `<span class="text-xs text-gray-500">Preview</span>`;
     }
 }
-// Updated fetchProductsServer to use 'limit' instead of 'pageSize' and handle null limit correctly
 async function fetchProductsServer({ page=1, term="", category="All", sort="popular", ids=null, includeSoldOut=false, limit=null }={}){ 
   let query = supabase.from('products').select('*', { count: 'exact' });
   
   if (ids) { 
       query = query.in('id', ids); 
-      limit = null; // Ignore limit when fetching by IDs
+      limit = null; 
   } 
   else {
     if (term.trim()) query = query.ilike('name', `%${term}%`);
     if (category && category !== 'All') query = query.eq('category', category);
     
-    // FIX: Show product if it has stock OR is explicitly marked as sold out.
-    // HIDE only if stock is 0 AND it's NOT explicitly marked as sold out (for customer view).
     if (!includeSoldOut) {
+        // Show product if it has stock OR is explicitly marked as sold out.
         query = query.or('stock.gt.0,is_sold_out.eq.true'); 
     }
     
@@ -160,10 +157,8 @@ async function fetchProductsServer({ page=1, term="", category="All", sort="popu
     else if (sort==='price-desc') query = query.order('price', { ascending:false });
     else if (sort==='newest') query = query.order('created_at', { ascending:false });
     
-    // FIX: Only apply range/limit if 'limit' is a number > 0. If limit is null (for all products), skip it.
     if (limit && typeof limit === 'number' && limit > 0) {
-        // Since we removed pageSize, we need a hardcoded limit for things like "featured" products
-        query = query.range((page-1)*limit, page*limit - 1);
+        query = query.limit(limit);
     }
   }
   const { data, count, error } = await query;
@@ -215,12 +210,10 @@ async function createOrUpdateProduct(record, files){
         category: record.category, 
         stock: Number(record.stock), 
         image_urls: finalImageUrls,
-        // NEW FIELDS
         discount_percent: Number(record.discount_percent) || 0,
         is_sold_out: record.is_sold_out === 'true',
     };
     
-    // Validation for discount
     if (payload.discount_percent < 0 || payload.discount_percent > 100) {
         throw new Error("Discount percentage must be between 0 and 100.");
     }
@@ -244,10 +237,12 @@ async function uploadCustomImage(file) {
 
 /* ====== RENDER FUNCTIONS ====== */
 const productBadge = p => {
-    // Check stock or is_sold_out status
+    // Priority: SOLD OUT > DISCOUNT > LOW STOCK
     const isSoldOut = p.stock === 0 || p.is_sold_out;
-    if (isSoldOut) return '<span class="badge-stock badge-stock-out">Sold Out</span>';
+    if (isSoldOut) return '<span class="badge-stock badge-stock-out">SOLD OUT</span>';
     if (p.discount_percent && p.discount_percent > 0) return `<span class="badge-stock badge-discount">-${p.discount_percent}%</span>`;
+    // Only show LOW STOCK if it's NOT explicitly marked as sold out and stock is low.
+    if (p.stock < 5 && p.stock > 0) return `<span class="badge-stock badge-stock-low">LOW STOCK (${p.stock})</span>`;
     return '';
 };
 const productCard = p => {
@@ -281,13 +276,14 @@ const productCard = p => {
         ${priceHTML}
       </div>
       <div class="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
-        <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors">Add to Cart</button>
+        <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="w-full bg-cyan-500 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-cyan-600 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors ${isSoldOut ? 'btn-sold-out' : ''}">
+          ${isSoldOut ? 'Sold Out (Custom Only)' : 'Add to Cart'}
+        </button>
       </div>
     </div>
   </div>`;
 };
 const skeletonCard = () => `<div class="skeleton-card"><div class="img"></div><div class="p-4 space-y-3"><div class="text w-3/4"></div><div class="text w-1/2"></div><div class="pt-4 mt-auto"><div class="text w-full h-9"></div></div></div></div>`;
-// Removed logic that depends on pageSize for skeleton rendering
 const renderSkeletonGrid = (grid) => { if(grid) grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join(''); };
 function renderGrid(products, gridElement, emptyMsg) {
   if (gridElement) {
@@ -300,13 +296,20 @@ function renderCategories(){
   const cats = ['All', ...new Set(ALL_CATEGORIES.map(c=>c.name).filter(Boolean).sort())];
   wrap.innerHTML = cats.map(c=> `<button data-category="${c}" class="${CURRENT_FILTER.category===c?'bg-cyan-600 text-white':'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600'} px-4 py-2 rounded-full text-sm font-semibold transition-colors hover:bg-cyan-50 hover:border-cyan-200 dark:hover:bg-gray-600">${c}</button>`).join('');
   
-  // Populate Custom Category Select
   const customCatSelect = $("#custom-category-select");
+  const productCatSelect = $("#product-category");
+  
+  // Populate Custom Category Select
   if (customCatSelect) {
       customCatSelect.innerHTML = '<option value="">-- Pilih Kategori --</option>' + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
   }
+  
+  // Populate Product Form Category Select (Admin)
+  if (productCatSelect) {
+      // Clear existing options and add new ones
+      productCatSelect.innerHTML = ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+  }
 }
-// Removed renderPagination function
 
 async function renderProductDetail(id) {
     const view = $("#product-detail-view");
@@ -351,7 +354,9 @@ async function renderProductDetail(id) {
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Available Stock: ${p.stock}</p>
         <p class="text-gray-600 dark:text-gray-300 leading-relaxed mt-4">${p.description || 'No description available.'}</p>
         <div class="flex gap-3 mt-6">
-          <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors">Add to Cart</button>
+          <button ${isSoldOut?'disabled':''} data-action="add-to-cart" data-id="${p.id}" class="flex-1 bg-cyan-600 text-white font-semibold py-3 rounded-lg hover:bg-cyan-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 transition-colors ${isSoldOut ? 'btn-sold-out' : ''}">
+            ${isSoldOut ? 'Sold Out (Custom Only)' : 'Add to Cart'}
+          </button>
           <button data-action="toggle-wishlist" data-id="${p.id}" class="px-4 rounded-lg border border-gray-300 dark:border-gray-600 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800">
             <i data-lucide="heart" class="w-5 h-5 ${isWishlisted ?'text-red-500 fill-red-500':'text-gray-600 dark:text-gray-300'}"></i>
           </button>
@@ -376,9 +381,7 @@ async function renderWishlist() {
     grid.innerHTML = '<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-12">Your wishlist is empty.</p>';
     return;
   }
-  // Changed logic to render only a maximum of 8 skeleton cards for visual consistency
   grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join('');
-  // Fetch all wished products
   const { rows } = await fetchProductsServer({ ids: wishlist, includeSoldOut: true, limit: null }); 
   renderGrid(rows, grid, 'Your wishlist is empty.');
 }
@@ -425,8 +428,6 @@ function renderCart(){
   iconify();
 }
 async function addToCart(p){
-  // Fix: The original logic failed to retrieve the full product object when adding from ALL_PRODUCTS.
-  // We need to fetch the latest product data before adding to cart to fix the duplication and stock issues.
   let fullProduct;
   if (p.id) {
     const { data } = await supabase.from('products').select('*').eq('id', p.id).single();
@@ -444,14 +445,12 @@ async function addToCart(p){
   }
   
   if (it){
-    // FIX: Check against the latest stock and allow quantity greater than 9
     if (it.quantity < fullProduct.stock){ 
         it.quantity++; 
         showToast(`${fullProduct.name} ditambahkan ke cart!`); 
     }
     else return showToast(`Stok tidak mencukupi untuk ${fullProduct.name}!`, 'error');
   } else {
-    // FIX: Ensure all new properties (discount, stock) are saved in cart
     if (fullProduct.stock > 0) {
       cart.push({ 
           id: String(fullProduct.id), 
@@ -466,7 +465,6 @@ async function addToCart(p){
     } else return showToast(`${fullProduct.name} telah habis stok!`, 'error');
   }
   
-  // FIX: Remove duplicates caused by previous bug
   const uniqueCart = [];
   const ids = new Set();
   for (const item of cart) {
@@ -474,7 +472,6 @@ async function addToCart(p){
       uniqueCart.push(item);
       ids.add(item.id);
     } else {
-      // If duplicate found, merge quantities
       const existing = uniqueCart.find(i => i.id === item.id);
       if (existing) {
           const newQty = existing.quantity + item.quantity;
@@ -498,7 +495,6 @@ async function updateQuantity(id, d){
   const q = it.quantity + d; 
   if (q<=0) return removeFromCart(id);
   
-  // Get latest product data (for stock check and to fix missing stock issue)
   let fullProduct;
   const productInAll = ALL_PRODUCTS.find(x => String(x.id) === String(id));
   if (productInAll) {
@@ -508,13 +504,11 @@ async function updateQuantity(id, d){
     fullProduct = data;
   }
   
-  // FIX: Use the stock from the fetched product or from cart item (as fallback)
   const stockLimit = fullProduct?.stock !== undefined ? fullProduct.stock : it.stock;
 
   if (q > stockLimit) return showToast(`Stok maksimum untuk ${it.name} adalah ${stockLimit}!`, 'error');
   
   it.quantity=q; 
-  // FIX: Update the stock property in the cart item as well if we fetched a fresh one
   if (fullProduct?.stock !== undefined) it.stock = fullProduct.stock;
 
   renderCart();
@@ -554,7 +548,6 @@ async function handleOrderSubmit(e) {
         const order = {
             id: uid().toUpperCase(),
             customer_details,
-            // FIX: Save discounted price to items list for historical record
             items: cart.map(i => ({ 
                 id: i.id, 
                 name: i.name, 
@@ -570,7 +563,6 @@ async function handleOrderSubmit(e) {
         
         await createOrder(order);
 
-        // Update stock only for items that still exist in the database and are not marked as sold out
         const stockUpdates = cart.map(item =>
             supabase.from('products').update({ stock: item.stock - item.quantity }).eq('id', item.id)
         );
@@ -628,7 +620,7 @@ async function switchView(view){
   if (view === 'admin') await handleAdminAccess();
   if (['home', 'all-products'].includes(view)) await loadPage();
   if (view === 'wishlist') await renderWishlist();
-  if (view === 'custom') { await fetchCategories(); await updateCustomFormSoldOutProducts(); } // New logic for custom view
+  if (view === 'custom') { await fetchCategories(); updateCustomFormSoldOutProducts(); } 
 }
 
 
@@ -681,7 +673,7 @@ async function renderAdminOrders() {
     }
 
     list.innerHTML = `<div class="space-y-3">` + orders.map(o => {
-        const isCustomOrder = o.items.length === 0; // Simple heuristic for custom order
+        const isCustomOrder = o.items.length === 0; 
         const totalAmount = money(o.total);
         return `
         <div class="order-card">
@@ -698,7 +690,7 @@ async function renderAdminOrders() {
     `}).join('') + `</div>`;
 }
 async function renderAdminChatTemplates() {
-    await fetchChatTemplates(); // Ensure CHAT_TEMPLATES is updated
+    await fetchChatTemplates(); 
     await fetchCategories();
     const list = $("#chat-templates-list");
     if (!list) return;
@@ -720,7 +712,6 @@ async function showOrderDetailModal(id) {
 
     const content = $('#order-detail-content');
     
-    // Detailed items list in modal
     const itemsListHtml = order.items.map(item => {
         const finalPrice = calculateDiscountedPrice(item.original_price || item.price, item.discount_percent);
         const priceDisplay = item.discount_percent > 0 
@@ -787,9 +778,7 @@ async function renderAdmin(){
   
   const pList = $("#admin-product-list");
   if(pList) {
-    // FIX: Set limit to null (within the fetchProductsServer function call) 
-    // to ensure ALL products are loaded without pagination limits for the admin view.
-    const {rows: adminProducts} = await fetchProductsServer({ page: 1, limit: null, includeSoldOut: true, sort: 'newest' });
+    const {rows: adminProducts} = await fetchProductsServer({ limit: null, includeSoldOut: true, sort: 'newest' });
     pList.innerHTML = `<div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 divide-y dark:divide-gray-700">
       ${adminProducts.map(p => {
           const isSoldOut = p.stock === 0 || p.is_sold_out;
@@ -841,8 +830,9 @@ async function openProductForm(id = null) {
     $("#product-images-preview").innerHTML = '';
     
     await fetchCategories();
+    // Populate Category select in form
     const categoryInput = $("#product-category");
-    categoryInput.innerHTML = `<option value="">Select Category</option>` + ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+    categoryInput.innerHTML = ALL_CATEGORIES.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
 
     let p = null;
     if (id) {
@@ -860,7 +850,9 @@ async function openProductForm(id = null) {
         $("#product-name").value = p.name;
         $("#product-price").value = p.price; 
         $("#product-stock").value = p.stock;
+        
         $("#product-category").value = p.category || '';
+        
         $("#product-description").value = p.description || '';
         
         // NEW FIELD VALUES
@@ -872,6 +864,10 @@ async function openProductForm(id = null) {
         renderImagePreviews(existingImages, $("#product-images-preview"));
     } else {
         $("#product-form-title").textContent = 'Add New Product';
+        // Set default category to the first one available if creating a new product
+        if (ALL_CATEGORIES.length > 0) {
+            $("#product-category").value = ALL_CATEGORIES[0].name;
+        }
     }
     togglePanel('product-form-modal', true);
 }
@@ -882,8 +878,13 @@ async function updateCustomFormSoldOutProducts() {
     const soldOutSelect = $("#sold-out-select");
     const soldOutSection = $("#sold-out-product-section");
     const customTypeRadios = $$('input[name="custom_type"]');
+    const imagePreviewContainer = $("#sold-out-product-image");
     
     const selectedType = customTypeRadios.find(r => r.checked)?.value;
+    
+    // Reset image preview
+    imagePreviewContainer.innerHTML = '<span class="text-sm text-gray-500">Tiada Produk Dipilih</span>';
+    imagePreviewContainer.classList.remove('p-0');
     
     if (!category || selectedType !== 'sold_out') {
         soldOutSection.classList.add('hidden');
@@ -892,11 +893,10 @@ async function updateCustomFormSoldOutProducts() {
 
     soldOutSelect.innerHTML = '<option value="">Loading...</option>';
 
-    // Query for products that are sold out (stock = 0 OR is_sold_out = true)
     const { data: soldOutProducts, error } = await supabase.from('products')
-        .select('id, name')
+        .select('id, name, image_urls')
         .eq('category', category)
-        .or('stock.eq.0,is_sold_out.eq.true'); // Combine stock check and sold_out flag
+        .or('stock.eq.0,is_sold_out.eq.true'); 
 
     if (error) {
         soldOutSelect.innerHTML = '<option value="">-- Failed to load products --</option>';
@@ -905,15 +905,50 @@ async function updateCustomFormSoldOutProducts() {
     }
     
     if (soldOutProducts && soldOutProducts.length > 0) {
+        // Store the products globally for easy image lookup
+        ALL_PRODUCTS_MAP = soldOutProducts.reduce((map, p) => {
+            map[p.id] = p;
+            return map;
+        }, {});
+
         soldOutSelect.innerHTML = '<option value="">-- Pilih Produk --</option>' + soldOutProducts.map(p => 
             `<option value="${p.id}">${p.name}</option>`
         ).join('');
         soldOutSection.classList.remove('hidden');
     } else {
         soldOutSelect.innerHTML = '<option value="">-- Tiada Produk Sold Out Dalam Kategori Ini --</option>';
-        soldOutSection.classList.remove('hidden'); // Show empty list
+        soldOutSection.classList.remove('hidden'); 
     }
 }
+async function updateSoldOutImagePreview(productId) {
+    const imagePreviewContainer = $("#sold-out-product-image");
+    
+    if (!productId) {
+        imagePreviewContainer.innerHTML = '<span class="text-sm text-gray-500">Tiada Produk Dipilih</span>';
+        imagePreviewContainer.classList.remove('p-0');
+        return;
+    }
+
+    // Try to get product from the map first
+    let product = ALL_PRODUCTS_MAP[productId];
+
+    // If not found in map (maybe map wasn't updated), fetch from server
+    if (!product) {
+        const { data } = await supabase.from('products').select('image_urls').eq('id', productId).single();
+        product = data;
+    }
+
+    if (product) {
+        const imageUrl = firstImageOf(product);
+        imagePreviewContainer.innerHTML = `<img src="${imageUrl}" alt="Product Image" class="w-full h-full object-contain">`;
+        imagePreviewContainer.classList.add('p-0');
+        imagePreviewContainer.classList.remove('justify-center', 'items-center');
+    } else {
+        imagePreviewContainer.innerHTML = '<span class="text-sm text-red-500">Gambar Gagal Dimuatkan</span>';
+        imagePreviewContainer.classList.remove('p-0');
+    }
+}
+
 async function handleCustomOrderSubmit(e) {
     e.preventDefault();
     
@@ -944,18 +979,15 @@ async function handleCustomOrderSubmit(e) {
             productName = product?.name || 'Produk Tidak Diketahui';
         }
         
-        // 1. Get the template based on category
-        await fetchChatTemplates(); // ensure templates are fresh
+        await fetchChatTemplates(); 
         const template = CHAT_TEMPLATES[category] || CHAT_TEMPLATES['DEFAULT'] || 
                          "Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. Jenis customization: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.";
         
-        // 2. Fill the template
         let message = template
             .replace(/\$CATEGORY/g, category)
             .replace(/\$TYPE/g, customType === 'new_design' ? 'Reka Bentuk Baharu' : 'Produk Sold Out')
             .replace(/\$DETAILS/g, details);
             
-        // Conditional replacements
         if (customType === 'sold_out' && productName) {
             message = message.replace(/\$PRODUCT_NAME/g, `Produk Asas: ${productName}`);
         } else {
@@ -971,10 +1003,12 @@ async function handleCustomOrderSubmit(e) {
         const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message.trim())}`;
         window.open(url, '_blank');
         
-        // Reset form after successful submission
         e.target.reset();
         $("#sold-out-product-section").classList.add('hidden');
         $("#upload-image-section").classList.add('hidden');
+        $("#sold-out-product-image").innerHTML = '<span class="text-sm text-gray-500">Tiada Produk Dipilih</span>';
+        $("#sold-out-product-image").classList.remove('p-0');
+        
         showToast('Permintaan custom dihantar ke WhatsApp!', 'success');
 
     } catch (err) {
@@ -989,24 +1023,19 @@ async function handleCustomOrderSubmit(e) {
 /* ====== PAGE LOAD & INIT ====== */
 async function loadPage(){
   const grid = $("#all-product-grid");
-  // Changed logic for skeleton grid since pageSize is removed. Show a fixed number.
-  grid.innerHTML = Array.from({ length: 8 }).map(skeletonCard).join('');
+  renderSkeletonGrid(grid);
   
   await fetchCategories();
   
-  // FIX: Load ALL products (limit: null) for the customer view, 
-  // relying on client-side filtering and rendering.
   const { rows } = await fetchProductsServer({ 
-      page: 1, 
       category: CURRENT_FILTER.category, 
       sort: CURRENT_FILTER.sort, 
-      includeSoldOut: false, // This will filter out products that are truly out of stock and not marked as 'is_sold_out'
+      includeSoldOut: false, 
       limit: null 
   }); 
 
   ALL_PRODUCTS = rows;
   
-  // Apply filtering and sorting logic on the client-side for immediate effect
   let filteredProducts = ALL_PRODUCTS;
 
   if (CURRENT_FILTER.category && CURRENT_FILTER.category !== 'All') {
@@ -1025,20 +1054,15 @@ async function loadPage(){
   } else if (CURRENT_FILTER.sort === 'newest') {
       filteredProducts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }
-  // No sorting needed for 'popular' unless a specific ranking column is introduced.
 
   renderCategories();
   renderGrid(filteredProducts, grid, 'No products found.');
-  // Removed renderPagination();
-
-  // Load Featured products (always take the first 4 after filtering/sorting logic)
-  // For featured products, we still limit to 4 to prevent clutter on the homepage
   renderGrid(filteredProducts.slice(0, 4), $("#featured-product-grid"), 'No featured products.');
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   initTheme();
-  await Promise.all([fetchSettings(), loadPage(), fetchChatTemplates()]); // Fetch templates on load
+  await Promise.all([fetchSettings(), loadPage(), fetchChatTemplates()]); 
   renderCart();
   handleHashChange();
   window.addEventListener('hashchange', handleHashChange);
@@ -1058,12 +1082,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (actionBtn?.dataset.action === 'back-to-cart') { 
         togglePanel('cart-panel', true);
     }
+    if (actionBtn?.dataset.action === 'close-custom-view') {
+        switchView('home');
+    }
 
     if (actionBtn){
       const { action, id, category } = actionBtn.dataset;
       let p;
       if (id) {
-          // Changed to fetch product from server to ensure latest data (e.g. discount)
           const { data } = await supabase.from('products').select('*').eq('id', id).single();
           p = data;
       }
@@ -1082,13 +1108,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       }
       if (action==='edit-product') openProductForm(id);
       if (action==='delete-product'){
-        // Changed alert to confirm
         if (!window.confirm("Delete this product?")) return;
         try { await deleteProduct(id); showToast('Product deleted'); await renderAdmin(); await loadPage(); }
         catch(err) { showToast(err.message||'Failed to delete','error'); }
       }
       if (action==='delete-category') {
-          // Changed alert to confirm
           if (!window.confirm("Delete this category?")) return;
           try {
               const { error } = await supabase.from('categories').delete().eq('id', id);
@@ -1131,7 +1155,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
 
   /* ====== INPUT & CHANGE HANDLERS ====== */
-  // Removed pagination handler
   $("#search-input")?.addEventListener('input', async e => { CURRENT_FILTER.term = e.target.value; await loadPage(); });
   $("#category-filters")?.addEventListener('click', async e => { if (e.target.tagName==='BUTTON'){ CURRENT_FILTER.category = e.target.dataset.category; await loadPage(); } });
   $("#sort-select")?.addEventListener('change', async e => { CURRENT_FILTER.sort = e.target.value; await loadPage(); });
@@ -1140,16 +1163,17 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if (e.target.id === 'order-status-select') {
         updateOrderStatus(e.target.dataset.id, e.target.value);
     }
-    // Custom Order form dynamic display logic
     if (e.target.id === 'custom-category-select') {
         updateCustomFormSoldOutProducts();
+    }
+    if (e.target.id === 'sold-out-select') {
+        updateSoldOutImagePreview(e.target.value);
     }
     if (e.target.name === 'custom_type') {
         const type = e.target.value;
         const uploadSection = $("#upload-image-section");
         const soldOutSection = $("#sold-out-product-section");
         
-        // Reset inputs and visibility
         uploadSection.classList.add('hidden');
         soldOutSection.classList.add('hidden');
         $("#custom-image-file").required = false;
@@ -1159,13 +1183,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
             uploadSection.classList.remove('hidden');
             $("#custom-image-file").required = true;
         } else if (type === 'sold_out') {
-            updateCustomFormSoldOutProducts(); // Rerun to show the correct sold-out products
+            updateCustomFormSoldOutProducts(); 
             $("#sold-out-select").required = true;
         }
     }
   });
 
-  // Custom Order Form Submission
   $("#custom-order-form")?.addEventListener('submit', handleCustomOrderSubmit);
 
 
@@ -1180,10 +1203,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     $$('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active')); btn.classList.add('active');
     $$('.admin-tab-content').forEach(c => c.classList.add('hidden')); $(`#admin-${btn.dataset.tab}-content`)?.classList.remove('hidden');
     if (btn.dataset.tab === 'dashboard') renderAdminDashboard();
-    if (btn.dataset.tab === 'products') renderAdmin(); // Rerun to update list
+    if (btn.dataset.tab === 'products') renderAdmin(); 
     if (btn.dataset.tab === 'orders') renderAdminOrders();
     if (btn.dataset.tab === 'categories') renderAdminCategories();
-    if (btn.dataset.tab === 'chat-templates') renderAdminChatTemplates(); // NEW
+    if (btn.dataset.tab === 'chat-templates') renderAdminChatTemplates(); 
   });
   $("#add-product-btn")?.addEventListener("click", () => openProductForm());
   $("#add-category-btn")?.addEventListener('click', async () => {
@@ -1191,11 +1214,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if (!name) return showToast('Category name is required', 'error');
       
       try {
-          // Add category
           const { error: catError } = await supabase.from('categories').insert({ name });
           if (catError) throw catError;
           
-          // Add default chat template for new category
           const defaultTemplate = "Hi, saya berminat untuk membuat pesanan custom untuk produk $CATEGORY. Jenis customization: $TYPE. Butiran: $DETAILS. $PRODUCT_NAME $IMAGE_URL. Terima kasih.";
           await supabase.from('whatsapp_chat_templates').insert({ category: name, template: defaultTemplate });
           
@@ -1251,7 +1272,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           category: $("#product-category").value, 
           description: $("#product-description").value,
           image_urls: $("#product-existing-images").value,
-          // NEW FIELDS
           discount_percent: $("#product-discount-percent").value,
           is_sold_out: $('input[name="is_sold_out"]:checked').value,
       };
